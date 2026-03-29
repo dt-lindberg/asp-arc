@@ -12,12 +12,12 @@ This first implementation is meant to be simple and build on the existing reposi
 - Let's basically re-use the prompts from `asp-gen-refinements` (see below) that are relevant, with tweaks necessary for the ARC puzzles, e.g., the puzzle formatting.
 - Store all intermediate data as jsons in a simple but effective structure. (intermediate data includes the puzzle ID, LLMs input's, thinking, response, ASP errors, etc etc.)
 - The goal is to have a first draft that is familiar to the existing code-base.
+- You should not evaluate your progress by how many puzzles the LLM solves, but by how well the pipeline functions. The evaluation is looking into the pipeline and making sure that everything makes sense; the input the LLM receives, the responses it returns, the errors caught and surfaced by Clingo, how they're packaged into prompts, the puzzle grid-diff, the eval script for puzzles, etc.
 
 ## Philosophy/Logistics
 There are some frameworks, existing work, scaff-holding, code, and theory that should guide this process. Everything should be documented, runs must be tracked, results stored, and automatic evaluations must guide what's working an what's not working.
 
 - You are working on a git branch, commit your changes with descriptive commit messages.
-
 ## Prior Work
 ### ASP Generation with Refinements
 `../asp-gen-refinements/` defines the precursor work from which this one builds. 
