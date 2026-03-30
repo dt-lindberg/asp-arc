@@ -10,7 +10,7 @@ MODEL_PATH = (
 SEED = 132
 
 # Enable/disable thinking mode
-THINKING = True
+THINKING = False
 
 # INFERENCE / SAMPLING
 MAX_TOKENS = 6000          # = MAX_THINK_TOKENS + 2000 response budget
