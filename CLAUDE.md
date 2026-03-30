@@ -50,6 +50,10 @@ ARC-AGI puzzles should have some fixed encodings. For example, the predicate tha
 - `output(X, Y, C)` where X and Y indicate the cell coordinate and C the colour.
 - The choice rule that generates the search space is almost always the same, it's always choosing exactly 1 colour for each possible output cell, e.g. something like: `1 {output(X, Y, C) : C} 1 :- Output_cell(X, Y).` What might change is the dimensions of the output grid, so the LLM should be allowed to specify the expected output dimension size.
 
+### Using input-output examples as labels
+The nature of the ARC-AGI puzzles admits one to verify programs, like the ASP code, on the given input-output examples. For instance, if the LLM produces program P, that takes as input some puzzle grid, and outputs an answer set of output cells (representing the output grid), we can run program P on the input-output examples we've been given. There are usually 2-3 examples per puzzles, but sometimes even more.
+
+This provides a strong signal if the program is correct or not. Mistakes on the given examples can surface errors with the program before it is submitted on the test instance and evaluated.
 
 # Tasks to get started
 - Run a sub-agent or two on the `../asp-gen-refinements/` repository to get a comprehensive report on what it contains, the information flow, where to find what. Make sure your sub-agents return a concise report with line numbers indicating where crucial functions etc can be found.
