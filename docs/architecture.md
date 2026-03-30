@@ -23,12 +23,7 @@ logger.py                 # Logging setup (stdout + logs/<date>/log_*.log)
 vllm_engine.py            # vLLM batched inference wrapper (Qwen3-30B-A3B)
 think_logits_processor.py # Forces </think> after the thinking budget is exhausted
 config.py                 # All configuration: model path, inference params, paths
-prompts/
-  1_constants.txt         # Step 1: extract color + dimension constants from examples
-  2_predicates.txt        # Step 2: generate auxiliary derived predicates
-  3_choice_rules.txt      # Step 3: generate output domain + choice rule
-  4_constraints.txt       # Step 4: generate integrity constraints (the rule)
-  5_reattempt.txt         # Refinement: full program rewrite with feedback
+prompts/		  # All prompts, defining each step
 ```
 
 ## Data Flow
@@ -39,20 +34,20 @@ main.py
   ├── load N puzzles (arc_loader.py)
   │     └── format each puzzle's train examples as text diagrams (utils.py)
   │
-  ├── STEP 1 — constants (batched LLM call)
+  ├── STEP 1 — transformation (batched LLM call)
   │     Prompt: <EXAMPLES>
-  │     Output: ASP color/dimension facts
+  │     Output: <ANALYSIS> describing the puzzle in natural language
   │
   ├── STEP 2 — predicates (batched LLM call)
-  │     Prompt: <EXAMPLES> + <CONSTANTS>
-  │     Output: auxiliary derived predicates (helper rules on input/3)
+  │     Prompt: <EXAMPLES> + <ANALYSIS>
+  │     Output: auxiliary predicates defined in natural language
   │
   ├── STEP 3 — choice rules (batched LLM call)
-  │     Prompt: <EXAMPLES> + <CONSTANTS> + <PREDICATES>
+  │     Prompt: <EXAMPLES> + <ANALYSIS> + <PREDICATES>
   │     Output: output_cell domain + 1{output(R,C,Color):color(Color)}1 rule
   │
   ├── STEP 4 — constraints (batched LLM call)
-  │     Prompt: <EXAMPLES> + <CONSTANTS> + <PREDICATES> + <CHOICE_RULES>
+  │     Prompt: <EXAMPLES> + <ANALYSIS> + <PREDICATES> + <CHOICE_RULES>
   │     Output: :- integrity constraints encoding the transformation
   │
   ├── Assemble full program (constants + predicates + choice_rules + constraints)
@@ -69,6 +64,8 @@ main.py
 ```
 
 ## Fixed ASP Encoding
+
+The colors are always `color(0;1;2;3;4;5;6;7;8;9)`.
 
 The output predicate and choice rule are always:
 ```asp
