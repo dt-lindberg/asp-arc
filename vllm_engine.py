@@ -72,21 +72,6 @@ class VLLMEngine:
         """
         from vllm import LLM, SamplingParams
 
-        # if THINKING:
-        #     if THINK_END_TOKEN_ID is None:
-        #         raise ValueError(
-        #             "THINK_END_TOKEN_ID is not set in config.py. "
-        #             "Run find_think_tokens.job and hard-code the result."
-        #         )
-        #     # FQCN string: vLLM loads the class by importing the module
-        #     logits_processors = ["think_logits_processor:ThinkLogitsProcessor"]
-        #     logger.info(
-        #         f"ThinkLogitsProcessor enabled via FQCN "
-        #         f"(THINK_END_TOKEN_ID={THINK_END_TOKEN_ID})"
-        #     )
-        # else:
-        #     logits_processors = None
-
         logger.info(f"Loading model from {MODEL_PATH}")
         t0 = time.perf_counter()
         self.llm = LLM(
@@ -96,7 +81,6 @@ class VLLMEngine:
             max_num_batched_tokens=max_num_batched_tokens,
             gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
             seed=SEED,
-            # logits_processors=logits_processors,
         )
         logger.info(f"Model loaded in {time.perf_counter() - t0:.2f}s")
 
@@ -118,17 +102,6 @@ class VLLMEngine:
             enable_thinking=THINKING,
         )
         return formatted
-        # except TypeError:
-        #     formatted = self.tokenizer.apply_chat_template(
-        #         messages,
-        #         tokenize=False,
-        #         add_generation_prompt=True,
-        #     )
-
-        # # GGUF tokenizers may silently ignore enable_thinking. For Qwen3,
-        # # thinking mode is activated by ending the prompt with <think>\n.
-        # if THINKING and not formatted.rstrip("\n").endswith("<think>"):
-        #     formatted = formatted.rstrip("\n") + "<think>\n"
 
     def generate_batch(self, messages_list):
         """Generate responses for a batch of conversations.

@@ -13,10 +13,10 @@ SEED = 132
 THINKING = False
 
 # INFERENCE / SAMPLING
-MAX_TOKENS = 6000          # = MAX_THINK_TOKENS + 2000 response budget
-MAX_THINK_TOKENS = 4000    # thinking budget before ThinkLogitsProcessor forces </think>
-MAX_MODEL_LEN = 32768      # max input+output tokens per sequence
-MAX_NUM_BATCHED_TOKENS = 2048
+MAX_TOKENS = 4_000          # = MAX_THINK_TOKENS + 2000 response budget
+MAX_THINK_TOKENS = 4_000    # thinking budget before ThinkLogitsProcessor forces </think>
+MAX_MODEL_LEN = 32_000      # max input+output tokens per sequence
+MAX_NUM_BATCHED_TOKENS = 2_048
 MAX_NUM_SEQS = 10          # max batch size
 TEMPERATURE = 0.7
 GPU_MEMORY_UTILIZATION = 0.95
