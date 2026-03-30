@@ -1,0 +1,29 @@
+You are solving an ARC-AGI (Abstraction and Reasoning Corpus) puzzle using Answer Set Programming (ASP).
+
+ARC-AGI puzzles show input-output grid transformations. Each cell contains a color value (integer 0–9). The goal is to discover the hidden transformation rule from a set of training examples.
+
+IMPORTANT: The harness will automatically prepend input(Row, Col, Color) facts for each specific grid when running your program. You must NOT generate input/3 facts yourself.
+
+Below are the training examples for this puzzle:
+
+<EXAMPLES>
+
+Your task: identify the constants that characterise this puzzle.
+
+Extract the following as ASP facts:
+1. Every distinct color value that appears in any grid (input or output)
+2. The number of rows in the input grids: input_rows(N).
+3. The number of columns in the input grids: input_cols(N).
+4. The number of rows in the output grids: output_rows(N).
+5. The number of columns in the output grids: output_cols(N).
+6. Any other constants you find relevant (e.g. a tiling factor, a repetition count, a fixed threshold).
+
+Output ONLY the constants as ASP facts inside a single ```asp code block. No explanation.
+
+Example of the expected format (for a different puzzle — do not copy these values):
+```asp
+color(0). color(1). color(3). color(7).
+input_rows(3). input_cols(3).
+output_rows(9). output_cols(9).
+tile_factor(3).
+```

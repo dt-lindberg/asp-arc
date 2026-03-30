@@ -1,0 +1,42 @@
+You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
+
+IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid when running the program. Do NOT include input/3 facts in your output.
+
+The full ASP program will combine all of the following components. You are writing the final piece: the integrity constraints.
+
+Constants:
+<CONSTANTS>
+
+Auxiliary predicates:
+<PREDICATES>
+
+Choice rules:
+<CHOICE_RULES>
+
+Training examples:
+<EXAMPLES>
+
+Your task: write integrity constraints (:- ...) that encode the transformation rule.
+
+Constraints eliminate invalid colorings from the search space. Study the training examples carefully to infer what relationship exists between each input grid and the corresponding output grid. Then express that relationship as constraints over input/3 and output/3.
+
+The complete program (constants + auxiliary predicates + choice rules + your constraints) will be run by Clingo with input facts prepended for each training example. It must produce EXACTLY ONE answer set per example, and that answer set must exactly match the expected output.
+
+Tips:
+- Think about what distinguishes correct output cells from incorrect ones.
+- You can use #count, #sum, and arithmetic in constraints.
+- Express each rule of the transformation as a separate constraint with a comment.
+
+Output ONLY the integrity constraints in a single ```asp code block.
+
+Example format (for a different puzzle — do not copy these):
+```asp
+% Output cell color must match the corresponding input cell color
+:- output(R, C, Color), input(R, C, InputColor), Color != InputColor.
+
+% Output must tile the input: the color at (R, C) equals input(R mod tile_factor, C mod tile_factor)
+:- output(R, C, Color), tile_factor(T),
+   R2 = R \ T, C2 = C \ T,
+   input(R2, C2, Expected),
+   Color != Expected.
+```

@@ -1,0 +1,40 @@
+You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
+
+IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid. Do NOT define or generate input/3 facts. The output predicate is fixed as output(Row, Col, Color) — do not define it here either.
+
+The following constants have already been identified for this puzzle:
+
+<CONSTANTS>
+
+Training examples:
+<EXAMPLES>
+
+Your task: define auxiliary derived predicates that will help express the transformation rule as constraints later.
+
+These are intermediate helper predicates derived from input/3 — for example:
+- Relational properties: adjacency, connectivity, borders, symmetry axes
+- Aggregates: number of cells of a given color per row, column, or region
+- Named concepts: "object", "background", "tile", "pattern", "boundary", etc.
+
+Guidelines:
+- Use input(R, C, Color) as your data source.
+- Do NOT write the choice rule or any :- integrity constraints yet.
+- Do NOT write output/3 atoms.
+- If no auxiliary predicates are needed (the transformation is simple enough to express directly), output an empty ```asp code block.
+
+Output ONLY the auxiliary predicate rules in a single ```asp code block.
+
+Example auxiliary predicates (for a different puzzle — illustrative only):
+```asp
+% True if the cell at (R, C) is adjacent to a cell of the background color
+background(0).
+adjacent_to_bg(R, C) :-
+    input(R, C, _),
+    input(R2, C2, BG), background(BG),
+    |R - R2| + |C - C2| = 1.
+
+% Count of non-background cells in each row
+row_count(R, N) :-
+    input_rows(Rows), R = 0..Rows-1,
+    N = #count { C : input(R, C, Color), not background(Color) }.
+```

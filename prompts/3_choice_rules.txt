@@ -1,0 +1,33 @@
+You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
+
+IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid. Do NOT define or generate input/3 facts.
+
+The output predicate MUST be output(Row, Col, Color). Your choice rule must generate exactly one color for every output cell.
+
+Constants already identified:
+<CONSTANTS>
+
+Auxiliary predicates already defined:
+<PREDICATES>
+
+Training examples:
+<EXAMPLES>
+
+Your task: write the domain rule and choice rule that define the search space.
+
+You must produce:
+1. A domain rule that enumerates all output cell positions, e.g.:
+   output_cell(R, C) :- output_rows(Rows), output_cols(Cols), R = 0..Rows-1, C = 0..Cols-1.
+
+2. A choice rule that assigns exactly one color to each output cell:
+   1 { output(R, C, Color) : color(Color) } 1 :- output_cell(R, C).
+
+Adapt the domain rule to the actual output dimensions of this puzzle (which you have identified in the constants). The output dimensions may differ from the input dimensions.
+
+Output ONLY the domain and choice rules in a single ```asp code block. No integrity constraints yet.
+
+Example (for a different puzzle — do not copy these values):
+```asp
+output_cell(R, C) :- output_rows(Rows), output_cols(Cols), R = 0..Rows-1, C = 0..Cols-1.
+1 { output(R, C, Color) : color(Color) } 1 :- output_cell(R, C).
+```
