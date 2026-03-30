@@ -1,51 +1,28 @@
-You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
+You are an expert at solving ARC-AGI (Abstraction and Reasoning Corpus) puzzles using Answer Set Programming (ASP).
 
-IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid. Do NOT define or generate input/3 facts. The output predicate is fixed as output(Row, Col, Color) — do not define it here either.
+<context>
+- input(Row, Col, Color) facts are prepended automatically — do NOT generate them.
+- color(0..9) is already hardcoded — do NOT generate color/1 facts.
+- The output predicate is always output(Row, Col, Color) — do NOT redefine it.
+</context>
 
-The following constants have already been identified for this puzzle:
-
-<CONSTANTS>
-
-Training examples:
+<examples>
 <EXAMPLES>
+</examples>
 
-Your task: define auxiliary derived predicates that will help express the transformation rule as constraints later.
+<analysis>
+<ANALYSIS>
+</analysis>
 
-These are intermediate helper predicates derived from input/3 — for example:
-- Relational properties: adjacency, connectivity, borders, symmetry axes
-- Aggregates: number of cells of a given color per row, column, or region
-- Named concepts: "object", "background", "tile", "pattern", "boundary", etc.
+Your task: based on the training examples and the analysis above, identify auxiliary predicates that a correct ASP solution is likely to need.
 
-Guidelines:
-- Use input(R, C, Color) as your data source.
-- Do NOT write the choice rule or any :- integrity constraints yet.
-- Do NOT write output/3 atoms.
-- If no auxiliary predicates are needed (the transformation is simple enough to express directly), output an empty ```asp code block.
-- Be CONCISE: only define predicates you will actually use in the constraints. Do not generate elaborate helper chains unless truly necessary.
+These are helper predicates derived from input/3 that capture fundamental structural properties of the puzzle — things like adjacency, connectivity, object identity, counts, or spatial relationships. Only include predicates that are genuinely relevant to expressing the transformation rule for this specific puzzle.
 
-CLINGO SYNTAX RULES (strictly follow these):
-- Absolute value |x| does NOT exist in Clingo. Use squared distance or delta offsets instead.
-  CORRECT adjacency pattern:
-    delta(0,1). delta(0,-1). delta(1,0). delta(-1,0).
-    adjacent(R1,C1,R2,C2) :- input(R1,C1,_), delta(DR,DC), R2=R1+DR, C2=C1+DC, input(R2,C2,_).
-- Aggregates use #count{...}, #sum{...}, #min{...}, #max{...}
-  CORRECT: N = #count { C : input(R, C, Color), Color != 0 }
-- Do NOT use "not exists(...)", "forall(...)", or Python-style expressions.
-- Arithmetic: use +, -, *, \\ (integer division), mod for modulo. Do NOT use / for integer division.
+Output a bullet-point list in the following format — natural language only, no ASP code:
 
-Output ONLY the auxiliary predicate rules in a single ```asp code block.
+- predicate_name/arity: description of what it represents and when it holds.
 
-Example auxiliary predicates (valid Clingo syntax):
-```asp
-% Background color
-background(0).
-
-% Adjacency using delta offsets
-delta(0,1). delta(0,-1). delta(1,0). delta(-1,0).
-adjacent(R1,C1,R2,C2) :- input(R1,C1,_), delta(DR,DC), R2=R1+DR, C2=C1+DC, input(R2,C2,_).
-
-% Count of non-background cells in each row
-row_count(R, N) :-
-    input_rows(Rows), R = 0..Rows-1,
-    N = #count { C : input(R, C, Color), Color != 0 }.
-```
+Examples of the format (for different puzzles — do not copy these):
+- same_color_row/3: holds for (R, C1, C2) when cells at (R, C1) and (R, C2) have the same non-background color.
+- connected/4: holds for (R1, C1, R2, C2) when both cells belong to the same 4-connected component of the same color.
+- background_color/1: holds for (C) when C is the background color in the input.

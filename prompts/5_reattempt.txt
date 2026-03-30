@@ -1,21 +1,27 @@
-You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
+You are an expert at solving ARC-AGI (Abstraction and Reasoning Corpus) puzzles using Answer Set Programming (ASP).
 
-IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid when running the program. Do NOT include input/3 facts in your program.
+<context>
+- input(Row, Col, Color) facts are prepended automatically — do NOT generate them.
+- color(0..9) is already hardcoded — do NOT generate color/1 facts.
+- The output predicate is always output(Row, Col, Color) — do NOT redefine it.
+</context>
 
-The output predicate is ALWAYS output(Row, Col, Color). Your program must produce EXACTLY ONE answer set for each training example, and that answer set must match the expected output exactly.
+Your program must produce EXACTLY ONE answer set for each training example, and that answer set must match the expected output exactly.
 
 ===SEPARATOR===
 
-Training examples:
+<examples>
 <EXAMPLES>
+</examples>
 
 Previous attempt(s) and feedback:
 <HISTORY>
 
 Write a complete, corrected ASP program that fixes all the issues identified above. Do not patch — write a fresh solution. The program should include:
-- Constant facts (colors, grid dimensions, etc.)
-- Any auxiliary derived predicates
-- The output_cell domain rule and the choice rule assigning colors
-- Integrity constraints encoding the transformation rule
+- Any auxiliary predicate rules needed (as normal ASP rules).
+- The output_cell domain rule and the choice rule assigning colors (use color(0..9) already available).
+- Integrity constraints encoding the transformation rule.
+
+Do NOT include color/1 facts or input/3 facts — these are provided by the harness.
 
 Output a single ```asp code block with the complete program.

@@ -1,8 +1,12 @@
 """Entry point for the ARC-ASP pipeline.
 
-Runs the 4-step decomposed generation (constants → predicates → choice_rules →
+Runs the 4-step decomposed generation (analysis → predicates → choice_rules →
 constraints) across a batch of puzzles, verifies each program on the training
 examples, then runs a refinement loop for puzzles that don't yet pass.
+
+Steps 1 and 2 produce natural-language outputs (analysis and predicate list).
+Steps 3 and 4 produce ASP code. color(0..9) is hardcoded; the assembled program
+is: color(0..9) + choice_rules + constraints.
 
 Results are saved as JSON to outputs/<run_id>.json.
 """
@@ -161,49 +165,49 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
     n = len(puzzles)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Step 1: Constants
+    # Step 1: Analysis — natural-language explanation + metadata
     # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Step 1: generating constants for {n} puzzle(s)...")
+    logger.info(f"Step 1: generating analysis for {n} puzzle(s)...")
     replaces_1 = [{"<EXAMPLES>": fe} for fe in formatted_examples]
-    results_1 = pipeline.gen_response_batch("constants", replaces_1)
+    results_1 = pipeline.gen_response_batch("analysis", replaces_1)
 
-    constants_list = []
+    # Step 1 output is natural language (XML-structured); capture full response.
+    analysis_list = []
     for i, (thinking, response) in enumerate(results_1):
-        extracted = extract_code_blocks(response)
-        constants_list.append(extracted)
-        prompt_used = pipeline.prompt["constants"].replace("<EXAMPLES>", formatted_examples[i])
-        _record_step(records[i], "constants", prompt_used, thinking, response, extracted)
-        logger.info(f"  [{puzzles[i]['id']}] constants extracted ({len(extracted)} chars)")
+        analysis_list.append(response)
+        prompt_used = pipeline.prompt["analysis"].replace("<EXAMPLES>", formatted_examples[i])
+        _record_step(records[i], "analysis", prompt_used, thinking, response, response)
+        logger.info(f"  [{puzzles[i]['id']}] analysis generated ({len(response)} chars)")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Step 2: Predicates
+    # Step 2: Predicates — natural-language bullet list, no ASP code
     # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Step 2: generating predicates for {n} puzzle(s)...")
+    logger.info(f"Step 2: generating predicate list for {n} puzzle(s)...")
     replaces_2 = [
-        {"<EXAMPLES>": fe, "<CONSTANTS>": c}
-        for fe, c in zip(formatted_examples, constants_list)
+        {"<EXAMPLES>": fe, "<ANALYSIS>": a}
+        for fe, a in zip(formatted_examples, analysis_list)
     ]
     results_2 = pipeline.gen_response_batch("predicates", replaces_2)
 
+    # Step 2 output is also natural language; capture full response.
     predicates_list = []
     for i, (thinking, response) in enumerate(results_2):
-        extracted = extract_code_blocks(response)
-        predicates_list.append(extracted)
+        predicates_list.append(response)
         prompt_used = (
             pipeline.prompt["predicates"]
             .replace("<EXAMPLES>", formatted_examples[i])
-            .replace("<CONSTANTS>", constants_list[i])
+            .replace("<ANALYSIS>", analysis_list[i])
         )
-        _record_step(records[i], "predicates", prompt_used, thinking, response, extracted)
-        logger.info(f"  [{puzzles[i]['id']}] predicates extracted ({len(extracted)} chars)")
+        _record_step(records[i], "predicates", prompt_used, thinking, response, response)
+        logger.info(f"  [{puzzles[i]['id']}] predicate list generated ({len(response)} chars)")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Step 3: Choice rules
+    # Step 3: Choice rules — ASP code
     # ──────────────────────────────────────────────────────────────────────
     logger.info(f"Step 3: generating choice rules for {n} puzzle(s)...")
     replaces_3 = [
-        {"<EXAMPLES>": fe, "<CONSTANTS>": c, "<PREDICATES>": p}
-        for fe, c, p in zip(formatted_examples, constants_list, predicates_list)
+        {"<EXAMPLES>": fe, "<ANALYSIS>": a, "<PREDICATES>": p}
+        for fe, a, p in zip(formatted_examples, analysis_list, predicates_list)
     ]
     results_3 = pipeline.gen_response_batch("choice_rules", replaces_3)
 
@@ -214,20 +218,20 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
         prompt_used = (
             pipeline.prompt["choice_rules"]
             .replace("<EXAMPLES>", formatted_examples[i])
-            .replace("<CONSTANTS>", constants_list[i])
+            .replace("<ANALYSIS>", analysis_list[i])
             .replace("<PREDICATES>", predicates_list[i])
         )
         _record_step(records[i], "choice_rules", prompt_used, thinking, response, extracted)
         logger.info(f"  [{puzzles[i]['id']}] choice rules extracted ({len(extracted)} chars)")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Step 4: Constraints
+    # Step 4: Constraints — ASP code (may also include helper predicate rules)
     # ──────────────────────────────────────────────────────────────────────
     logger.info(f"Step 4: generating constraints for {n} puzzle(s)...")
     replaces_4 = [
-        {"<EXAMPLES>": fe, "<CONSTANTS>": c, "<PREDICATES>": p, "<CHOICE_RULES>": cr}
-        for fe, c, p, cr in zip(
-            formatted_examples, constants_list, predicates_list, choice_rules_list
+        {"<EXAMPLES>": fe, "<ANALYSIS>": a, "<PREDICATES>": p, "<CHOICE_RULES>": cr}
+        for fe, a, p, cr in zip(
+            formatted_examples, analysis_list, predicates_list, choice_rules_list
         )
     ]
     results_4 = pipeline.gen_response_batch("constraints", replaces_4)
@@ -239,7 +243,7 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
         prompt_used = (
             pipeline.prompt["constraints"]
             .replace("<EXAMPLES>", formatted_examples[i])
-            .replace("<CONSTANTS>", constants_list[i])
+            .replace("<ANALYSIS>", analysis_list[i])
             .replace("<PREDICATES>", predicates_list[i])
             .replace("<CHOICE_RULES>", choice_rules_list[i])
         )
@@ -248,14 +252,11 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
 
     # ──────────────────────────────────────────────────────────────────────
     # Assemble full programs
+    # Colors are hardcoded: analysis and predicates are NL, not ASP code.
     # ──────────────────────────────────────────────────────────────────────
     programs = []
     for i in range(n):
-        parts = []
-        if constants_list[i]:
-            parts.append(f"% === Constants ===\n{constants_list[i]}")
-        if predicates_list[i]:
-            parts.append(f"% === Auxiliary predicates ===\n{predicates_list[i]}")
+        parts = ["% === Colors (hardcoded) ===\ncolor(0..9)."]
         if choice_rules_list[i]:
             parts.append(f"% === Choice rules ===\n{choice_rules_list[i]}")
         if constraints_list[i]:

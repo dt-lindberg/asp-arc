@@ -1,33 +1,48 @@
 You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
 
-IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid. Do NOT define or generate input/3 facts.
+<context>
+- input(Row, Col, Color) facts are prepended automatically — do NOT generate them.
+- color(0..9) is already hardcoded — do NOT generate color/1 facts.
+- The output predicate is always output(Row, Col, Color) — do NOT redefine it.
+</context>
 
-The output predicate MUST be output(Row, Col, Color). Your choice rule must generate exactly one color for every output cell.
-
-Constants already identified:
-<CONSTANTS>
-
-Auxiliary predicates already defined:
-<PREDICATES>
-
-Training examples:
+<examples>
 <EXAMPLES>
+</examples>
 
-Your task: write the domain rule and choice rule that define the search space.
+<analysis>
+<ANALYSIS>
+</analysis>
+
+<auxiliary_predicates>
+<PREDICATES>
+</auxiliary_predicates>
+
+Your task: write the domain rule and choice rule that define the search space for output cells.
 
 You must produce:
-1. A domain rule that enumerates all output cell positions, e.g.:
-   output_cell(R, C) :- output_rows(Rows), output_cols(Cols), R = 0..Rows-1, C = 0..Cols-1.
+1. A domain rule enumerating all output cell positions. Use the output dimension rule from the analysis — the output size may differ from the input. Derive dimensions from input/3 facts dynamically rather than using fixed constants. For example:
+   - Same size as input: output_cell(R, C) :- input(R, C, _).
+   - Derived via aggregate:
+     rows(R) :- input(R, _, _).
+     cols(C) :- input(_, C, _).
+     output_cell(R, C) :- rows(R), cols(C).
+   - Scaled output: define max row/col from input, then multiply.
 
-2. A choice rule that assigns exactly one color to each output cell:
+2. A choice rule assigning exactly one color to each output cell:
    1 { output(R, C, Color) : color(Color) } 1 :- output_cell(R, C).
 
-Adapt the domain rule to the actual output dimensions of this puzzle (which you have identified in the constants). The output dimensions may differ from the input dimensions.
+CLINGO SYNTAX RULES:
+- Absolute value |x| does NOT exist. Use delta offsets or squared comparisons instead.
+- Arithmetic: +, -, *, \\ (integer division), mod. Do NOT use / for integer division.
+- Aggregates: #count{Vars : conditions}, #max{Var, Vars : conditions}, #min{...}, etc.
+- Do NOT use Python-style expressions, "forall", or "not exists".
 
-Output ONLY the domain and choice rules in a single ```asp code block. No integrity constraints yet.
+Output ONLY the domain and choice rules in a single ```asp code block.
 
-Example (for a different puzzle — do not copy these values):
+Example (for a different puzzle — do not copy):
 ```asp
-output_cell(R, C) :- output_rows(Rows), output_cols(Cols), R = 0..Rows-1, C = 0..Cols-1.
+% Output has same dimensions as input
+output_cell(R, C) :- input(R, C, _).
 1 { output(R, C, Color) : color(Color) } 1 :- output_cell(R, C).
 ```

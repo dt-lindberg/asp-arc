@@ -43,7 +43,7 @@ MAX_VARIABLE_ATOMS = 30
 DEFAULT_ENGINE = "qwen3-30b-local"
 
 PROMPT_PATHS = {
-    "constants":     "prompts/1_constants.txt",
+    "analysis":      "prompts/1_analysis.txt",
     "predicates":    "prompts/2_predicates.txt",
     "choice_rules":  "prompts/3_choice_rules.txt",
     "constraints":   "prompts/4_constraints.txt",

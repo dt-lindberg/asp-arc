@@ -1,50 +1,54 @@
-You are solving an ARC-AGI puzzle using Answer Set Programming (ASP).
+You are an expert at solving ARC-AGI (Abstraction and Reasoning Corpus) puzzles using Answer Set Programming (ASP).
 
-IMPORTANT: The harness automatically prepends input(Row, Col, Color) facts for each specific grid when running the program. Do NOT include input/3 facts in your output.
+<context>
+- input(Row, Col, Color) facts are prepended automatically — do NOT generate them.
+- color(0..9) is already hardcoded — do NOT generate color/1 facts.
+- The output predicate is always output(Row, Col, Color) — do NOT redefine it.
+</context>
 
-The full ASP program will combine all of the following components. You are writing the final piece: the integrity constraints.
-
-Constants:
-<CONSTANTS>
-
-Auxiliary predicates:
-<PREDICATES>
-
-Choice rules:
-<CHOICE_RULES>
-
-Training examples:
+<examples>
 <EXAMPLES>
+</examples>
 
-Your task: write integrity constraints (:- ...) that encode the transformation rule.
+<analysis>
+<ANALYSIS>
+</analysis>
 
-Constraints eliminate invalid colorings from the search space. Study the training examples carefully to infer what relationship exists between each input grid and the corresponding output grid. Then express that relationship as constraints over input/3, output/3, and any auxiliary predicates.
+<auxiliary_predicates>
+<PREDICATES>
+</auxiliary_predicates>
 
-The complete program (constants + auxiliary predicates + choice rules + your constraints) will be run by Clingo with input facts prepended for each training example. It must produce EXACTLY ONE answer set per example, and that answer set must exactly match the expected output.
+<choice_rules>
+<CHOICE_RULES>
+</choice_rules>
 
-Tips:
-- Think about what distinguishes correct output cells from incorrect ones.
-- Express each rule of the transformation as a separate constraint with a comment.
-- Be CONCISE: write only the constraints needed to uniquely determine the output.
+Your task: write the rules and integrity constraints that encode the transformation.
 
-CLINGO SYNTAX RULES (strictly follow these):
-- Use :- to write integrity constraints (eliminating invalid answer sets).
+This section should contain two things:
+1. Definitions of any auxiliary predicates (from the list above) that you choose to use — written as normal ASP rules.
+2. Integrity constraints (:- ...) that eliminate output colorings inconsistent with the transformation.
+
+The complete program (color(0..9) + choice rules + your output) will be run by Clingo with input facts prepended for each training example. It must produce EXACTLY ONE answer set per example, and that answer set must exactly match the expected output.
+
+Guidelines:
+- Study the training examples carefully: infer the transformation from input to output.
+- Add a brief comment above each constraint explaining what it enforces.
+- Only implement the auxiliary predicates you actually use.
+- Be concise: write only what is needed to uniquely determine the correct output.
+
+CLINGO SYNTAX RULES:
+- Integrity constraints use :- (they eliminate invalid answer sets).
 - Aggregates: #count{Vars : conditions}, #sum{Weight, Vars : conditions}.
-  Compare with =, !=, <, >, <=, >=. Example: N = #count { C : input(R, C, 0) }
-- Absolute value |x| does NOT exist. Use squared comparisons or explicit cases if needed.
-- Arithmetic operators: +, -, *, \\ (integer division), mod.
-- Do NOT use Python-style conditionals, list comprehensions, or "forall".
+- No absolute value |x| — use squared comparisons or explicit delta patterns.
+  CORRECT adjacency:
+    delta(0,1). delta(0,-1). delta(1,0). delta(-1,0).
+    adjacent(R1,C1,R2,C2) :- input(R1,C1,_), delta(DR,DC), R2=R1+DR, C2=C1+DC, input(R2,C2,_).
+- Arithmetic: +, -, *, \\ (integer division), mod. No Python-style expressions.
 
-Output ONLY the integrity constraints in a single ```asp code block.
+Output ONLY the rules and constraints in a single ```asp code block.
 
-Example format (for a different puzzle — do not copy these):
+Example format (for a different puzzle — do not copy):
 ```asp
-% Output cell color must match the corresponding input cell color
+% Output color must match the input color at the same cell
 :- output(R, C, Color), input(R, C, InputColor), Color != InputColor.
-
-% Output must tile the input: color at (R,C) = input(R mod T, C mod T)
-:- output(R, C, Color), tile_factor(T),
-   R2 = R \\ T, C2 = C \\ T,
-   input(R2, C2, Expected),
-   Color != Expected.
 ```

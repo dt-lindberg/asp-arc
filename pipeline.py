@@ -108,7 +108,7 @@ class Pipeline:
         """Generate responses for a batch of puzzles using a prompt template.
 
         Args:
-            kind: prompt key (e.g. "constants", "predicates").
+            kind: prompt key (e.g. "analysis", "predicates").
             replaces: list of {placeholder: value} dicts, one per puzzle.
 
         Returns:
