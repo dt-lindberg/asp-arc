@@ -21,20 +21,31 @@ Guidelines:
 - Do NOT write the choice rule or any :- integrity constraints yet.
 - Do NOT write output/3 atoms.
 - If no auxiliary predicates are needed (the transformation is simple enough to express directly), output an empty ```asp code block.
+- Be CONCISE: only define predicates you will actually use in the constraints. Do not generate elaborate helper chains unless truly necessary.
+
+CLINGO SYNTAX RULES (strictly follow these):
+- Absolute value |x| does NOT exist in Clingo. Use squared distance or delta offsets instead.
+  CORRECT adjacency pattern:
+    delta(0,1). delta(0,-1). delta(1,0). delta(-1,0).
+    adjacent(R1,C1,R2,C2) :- input(R1,C1,_), delta(DR,DC), R2=R1+DR, C2=C1+DC, input(R2,C2,_).
+- Aggregates use #count{...}, #sum{...}, #min{...}, #max{...}
+  CORRECT: N = #count { C : input(R, C, Color), Color != 0 }
+- Do NOT use "not exists(...)", "forall(...)", or Python-style expressions.
+- Arithmetic: use +, -, *, \\ (integer division), mod for modulo. Do NOT use / for integer division.
 
 Output ONLY the auxiliary predicate rules in a single ```asp code block.
 
-Example auxiliary predicates (for a different puzzle — illustrative only):
+Example auxiliary predicates (valid Clingo syntax):
 ```asp
-% True if the cell at (R, C) is adjacent to a cell of the background color
+% Background color
 background(0).
-adjacent_to_bg(R, C) :-
-    input(R, C, _),
-    input(R2, C2, BG), background(BG),
-    |R - R2| + |C - C2| = 1.
+
+% Adjacency using delta offsets
+delta(0,1). delta(0,-1). delta(1,0). delta(-1,0).
+adjacent(R1,C1,R2,C2) :- input(R1,C1,_), delta(DR,DC), R2=R1+DR, C2=C1+DC, input(R2,C2,_).
 
 % Count of non-background cells in each row
 row_count(R, N) :-
     input_rows(Rows), R = 0..Rows-1,
-    N = #count { C : input(R, C, Color), not background(Color) }.
+    N = #count { C : input(R, C, Color), Color != 0 }.
 ```

@@ -26,6 +26,7 @@ from config import (
     TEMPERATURE,
     MAX_TOKENS,
     MAX_ATTEMPTS,
+    MAX_MODEL_LEN,
     SEED,
 )
 
@@ -62,7 +63,31 @@ def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, hist
     prompt = instruction
     prompt = prompt.replace("<EXAMPLES>", formatted_examples)
     prompt = prompt.replace("<HISTORY>", history_str)
-    return system_prompt + "\n\n" + prompt
+    full = system_prompt + "\n\n" + prompt
+
+    # Guard against context overflow: if prompt is too long, truncate the oldest
+    # program in the history (keep feedback, shorten code).
+    # Rough estimate: 1 token ≈ 4 chars; leave MAX_TOKENS budget for output.
+    char_budget = (MAX_MODEL_LEN - MAX_TOKENS) * 4
+    if len(full) > char_budget and len(history) > 1:
+        logger.warning(
+            f"Reattempt prompt ({len(full)} chars) may exceed context budget "
+            f"({char_budget} chars). Truncating oldest program in history."
+        )
+        # Replace the oldest full program with a [truncated] placeholder
+        old_prog, old_feedback = history[0]
+        truncated_prog = old_prog[:500] + "\n... [truncated for context budget]"
+        history_parts[0] = (
+            f"<attempt_1>\n```asp\n{truncated_prog}\n```\n\n"
+            f"<feedback>\n{old_feedback}\n</feedback>\n</attempt_1>"
+        )
+        history_str = "\n\n".join(history_parts)
+        prompt = instruction
+        prompt = prompt.replace("<EXAMPLES>", formatted_examples)
+        prompt = prompt.replace("<HISTORY>", history_str)
+        full = system_prompt + "\n\n" + prompt
+
+    return full
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +145,20 @@ def main(args):
     n = len(puzzles)
 
     records = [_make_record(p, run_id) for p in puzzles]
+
+    try:
+        _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id)
+    except Exception as e:
+        logger.error(f"Pipeline crashed: {e}", exc_info=True)
+        logger.info("Saving partial results before exiting...")
+        _save_results(records, run_id + "_partial")
+        raise
+
+    return records
+
+
+def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
+    n = len(puzzles)
 
     # ──────────────────────────────────────────────────────────────────────
     # Step 1: Constants
@@ -332,10 +371,7 @@ def main(args):
     # ──────────────────────────────────────────────────────────────────────
     # Save results
     # ──────────────────────────────────────────────────────────────────────
-    out_path = os.path.join("outputs", f"{run_id}.json")
-    with open(out_path, "w") as f:
-        json.dump(records, f, indent=2)
-    logger.info(f"Results saved to {out_path}")
+    _save_results(records, run_id)
 
     n_final = sum(r["final_correct"] for r in records)
     logger.info(f"Final: {n_final}/{n} puzzle(s) solved (all training examples correct)")
@@ -345,6 +381,13 @@ def main(args):
         logger.info(f"  {r['puzzle_id']}: {status} ({n_ref} refinement(s))")
 
     return records
+
+
+def _save_results(records, run_id):
+    out_path = os.path.join("outputs", f"{run_id}.json")
+    with open(out_path, "w") as f:
+        json.dump(records, f, indent=2)
+    logger.info(f"Results saved to {out_path}")
 
 
 # ---------------------------------------------------------------------------

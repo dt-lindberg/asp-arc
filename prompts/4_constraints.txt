@@ -18,14 +18,22 @@ Training examples:
 
 Your task: write integrity constraints (:- ...) that encode the transformation rule.
 
-Constraints eliminate invalid colorings from the search space. Study the training examples carefully to infer what relationship exists between each input grid and the corresponding output grid. Then express that relationship as constraints over input/3 and output/3.
+Constraints eliminate invalid colorings from the search space. Study the training examples carefully to infer what relationship exists between each input grid and the corresponding output grid. Then express that relationship as constraints over input/3, output/3, and any auxiliary predicates.
 
 The complete program (constants + auxiliary predicates + choice rules + your constraints) will be run by Clingo with input facts prepended for each training example. It must produce EXACTLY ONE answer set per example, and that answer set must exactly match the expected output.
 
 Tips:
 - Think about what distinguishes correct output cells from incorrect ones.
-- You can use #count, #sum, and arithmetic in constraints.
 - Express each rule of the transformation as a separate constraint with a comment.
+- Be CONCISE: write only the constraints needed to uniquely determine the output.
+
+CLINGO SYNTAX RULES (strictly follow these):
+- Use :- to write integrity constraints (eliminating invalid answer sets).
+- Aggregates: #count{Vars : conditions}, #sum{Weight, Vars : conditions}.
+  Compare with =, !=, <, >, <=, >=. Example: N = #count { C : input(R, C, 0) }
+- Absolute value |x| does NOT exist. Use squared comparisons or explicit cases if needed.
+- Arithmetic operators: +, -, *, \\ (integer division), mod.
+- Do NOT use Python-style conditionals, list comprehensions, or "forall".
 
 Output ONLY the integrity constraints in a single ```asp code block.
 
@@ -34,9 +42,9 @@ Example format (for a different puzzle — do not copy these):
 % Output cell color must match the corresponding input cell color
 :- output(R, C, Color), input(R, C, InputColor), Color != InputColor.
 
-% Output must tile the input: the color at (R, C) equals input(R mod tile_factor, C mod tile_factor)
+% Output must tile the input: color at (R,C) = input(R mod T, C mod T)
 :- output(R, C, Color), tile_factor(T),
-   R2 = R \ T, C2 = C \ T,
+   R2 = R \\ T, C2 = C \\ T,
    input(R2, C2, Expected),
    Color != Expected.
 ```
