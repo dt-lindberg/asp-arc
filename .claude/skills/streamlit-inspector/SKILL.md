@@ -54,6 +54,10 @@ ARC_COLORS = {
 }
 ```
 
+## Pitfalls
+
+**Widget key collisions when switching puzzles.** Streamlit caches widget values by key across reruns. Any `st.text_area`, `st.expander`, etc. that displays puzzle-specific content must include `puzzle_idx` in its key, otherwise switching puzzles in the sidebar leaves the previous puzzle's content displayed. The convention used here is `f"p{puzzle_idx}_<widget_name>"`. Every widget inside `show_steps()` and `show_refinements()` follows this pattern — keep it consistent when adding new ones.
+
 ## Extending the app
 
 - **New section**: add a function that takes `record` (the puzzle dict) and call it after the existing sections in `eval/app.py`. Use `st.subheader` for the title and wrap detail in `st.expander`.

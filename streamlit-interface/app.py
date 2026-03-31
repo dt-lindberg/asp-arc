@@ -63,26 +63,99 @@ def _grid_html(grid, cell_px=26):
     )
 
 
-def show_example_grids(examples):
-    """Show input → output grid pairs for a list of training examples."""
-    pairs = []
-    for i, ex in enumerate(examples):
-        inp_html = _grid_html(ex["input"])
-        out_html = _grid_html(ex["output"])
-        pairs.append(
-            f'<div style="display:inline-block;margin:6px 20px 6px 0">'
-            f'<div style="font-size:11px;color:#999;margin-bottom:4px;text-align:center">'
-            f'Example {i + 1}</div>'
-            f'<div style="display:flex;gap:10px;align-items:center">'
-            f'{inp_html}'
-            f'<span style="font-size:18px;color:#888">→</span>'
-            f'{out_html}'
-            f'</div>'
-            f'</div>'
+def show_example_navigator(puzzle_idx, train_examples, test_examples, train_verifications):
+    """Show one example at a time with prev/next navigation.
+
+    Covers all training examples followed by test instances. For train examples,
+    the predicted grid from verification results is shown if available.
+    """
+    # Build flat list of slides: each is a dict with type, label, input, expected, predicted
+    slides = []
+    verif_by_idx = {v["example_idx"]: v for v in train_verifications}
+
+    for i, ex in enumerate(train_examples):
+        v = verif_by_idx.get(i, {})
+        slides.append({
+            "label": f"Train {i + 1} / {len(train_examples)}",
+            "input": ex["input"],
+            "expected": ex["output"],
+            "predicted": v.get("grid_predicted"),
+            "correct": v.get("correct"),
+        })
+
+    for i, ex in enumerate(test_examples):
+        slides.append({
+            "label": f"Test {i + 1}" + (" / " + str(len(test_examples)) if len(test_examples) > 1 else ""),
+            "input": ex["input"],
+            "expected": ex.get("output"),
+            "predicted": None,
+            "correct": None,
+        })
+
+    n = len(slides)
+    if n == 0:
+        st.caption("No examples available.")
+        return
+
+    state_key = f"p{puzzle_idx}_ex_idx"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = 0
+    # Clamp in case puzzle count changed
+    st.session_state[state_key] = max(0, min(st.session_state[state_key], n - 1))
+    idx = st.session_state[state_key]
+    slide = slides[idx]
+
+    # Navigation bar
+    nav_left, nav_mid, nav_right = st.columns([1, 4, 1])
+    with nav_left:
+        if st.button("← Prev", key=f"p{puzzle_idx}_prev", disabled=idx == 0):
+            st.session_state[state_key] -= 1
+            st.rerun()
+    with nav_mid:
+        st.markdown(
+            f'<div style="text-align:center;font-size:13px;color:#aaa;padding-top:6px">'
+            f'{slide["label"]}</div>',
+            unsafe_allow_html=True,
         )
-    st.html(
-        '<div style="display:flex;flex-wrap:wrap;gap:4px">' + "".join(pairs) + "</div>"
-    )
+    with nav_right:
+        if st.button("Next →", key=f"p{puzzle_idx}_next", disabled=idx == n - 1):
+            st.session_state[state_key] += 1
+            st.rerun()
+
+    # Grid columns: always show input + expected; add predicted if present
+    has_predicted = slide["predicted"] is not None
+    has_expected = slide["expected"] is not None
+
+    if has_predicted:
+        cols = st.columns(3, gap="medium")
+        labels = ["Input", "Expected", "Predicted"]
+        grids = [slide["input"], slide["expected"], slide["predicted"]]
+    elif has_expected:
+        cols = st.columns(2, gap="medium")
+        labels = ["Input", "Expected"]
+        grids = [slide["input"], slide["expected"]]
+    else:
+        cols = st.columns(1)
+        labels = ["Input"]
+        grids = [slide["input"]]
+
+    for col, label, grid in zip(cols, labels, grids):
+        with col:
+            st.caption(label)
+            st.html(_grid_html(grid))
+
+    # Pass/fail badge for train examples (idx is the slide index = train example index)
+    if slide["correct"] is not None:
+        if slide["correct"]:
+            st.success("Correct", icon="✓")
+        else:
+            v = verif_by_idx.get(idx, {})
+            status = v.get("status", "wrong").replace("_", " ").upper()
+            if v.get("clingo_errors"):
+                st.error(f"{status}\n\n```\n{v['clingo_errors']}\n```")
+            elif v.get("diff"):
+                st.error(status)
+                st.text(v["diff"])
 
 
 def show_verification_grids(verifications, examples):
@@ -193,7 +266,7 @@ STEP_LABELS = {
 ASP_STEPS = {"choice_rules", "constraints"}
 
 
-def show_steps(steps):
+def show_steps(steps, puzzle_idx):
     """Render the 4 generation steps as collapsible expanders."""
     for key, label in STEP_LABELS.items():
         if key not in steps:
@@ -209,7 +282,7 @@ def show_steps(steps):
                     height=180,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"thinking_{key}",
+                    key=f"p{puzzle_idx}_thinking_{key}",
                 )
 
             st.markdown("**Response**")
@@ -223,7 +296,7 @@ def show_steps(steps):
                     height=160,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"response_{key}",
+                    key=f"p{puzzle_idx}_response_{key}",
                 )
                 if extracted and extracted != response:
                     st.markdown("**Extracted program**")
@@ -235,7 +308,7 @@ def show_steps(steps):
                     height=200,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"response_{key}",
+                    key=f"p{puzzle_idx}_response_{key}",
                 )
 
 
@@ -244,7 +317,7 @@ def show_steps(steps):
 # ---------------------------------------------------------------------------
 
 
-def show_refinements(refinements, examples):
+def show_refinements(refinements, examples, puzzle_idx):
     """Render each refinement attempt as a collapsible expander."""
     if not refinements:
         return
@@ -252,13 +325,6 @@ def show_refinements(refinements, examples):
     for ref in refinements:
         attempt = ref["attempt"]
         all_ok = ref.get("all_train_correct", False)
-        status_badge = "SOLVED" if all_ok else "UNSOLVED"
-        badge_color = "#2ECC40" if all_ok else "#FF4136"
-
-        label = (
-            f"Attempt {attempt} — "
-            f"<span style='color:{badge_color}'>{status_badge}</span>"
-        )
         with st.expander(f"Attempt {attempt} — {'SOLVED' if all_ok else 'UNSOLVED'}", expanded=False):
             thinking = ref.get("thinking", "")
             if thinking and thinking.strip():
@@ -269,7 +335,7 @@ def show_refinements(refinements, examples):
                     height=160,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"ref_thinking_{attempt}",
+                    key=f"p{puzzle_idx}_ref_thinking_{attempt}",
                 )
 
             program = ref.get("program", "")
@@ -372,25 +438,30 @@ try:
     from arc_loader import load_puzzle
     puzzle = load_puzzle(puzzle_id, dataset)
     examples = puzzle["train"]
+    test_examples = puzzle.get("test", [])
 except Exception:
+    puzzle = {}
     examples = []
+    test_examples = []
 
 # ---------------------------------------------------------------------------
 # Training example grids overview
 # ---------------------------------------------------------------------------
 
-st.subheader("Training Examples")
-if examples:
-    show_example_grids(examples)
-else:
-    st.caption("Could not load puzzle data.")
+st.subheader("Examples")
+show_example_navigator(
+    puzzle_idx,
+    examples,
+    test_examples,
+    record.get("train_verifications", []),
+)
 
 # ---------------------------------------------------------------------------
 # Step-by-step reasoning
 # ---------------------------------------------------------------------------
 
 st.subheader("Step-by-Step Analysis")
-show_steps(record.get("steps", {}))
+show_steps(record.get("steps", {}), puzzle_idx)
 
 # ---------------------------------------------------------------------------
 # Final assembled program
@@ -446,4 +517,4 @@ else:
 # Refinement attempts
 # ---------------------------------------------------------------------------
 
-show_refinements(record.get("refinements", []), examples)
+show_refinements(record.get("refinements", []), examples, puzzle_idx)
