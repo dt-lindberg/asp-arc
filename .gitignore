@@ -1,4 +1,4 @@
-outputs/*
+**/outputs/*
 arc-puzzles/*
 
 # Byte-compiled / optimized / DLL files

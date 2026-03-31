@@ -1,5 +1,5 @@
 """
-Test script for nvidia/Nemotron-Cascade-2-30B-A3B (4-bit AWQ quantized).
+Test script for nvidia/Nemotron-Cascade-2-30B-A3B (NVFP4 quantized).
 
 Runs both thinking and non-thinking modes and prints outputs with timing.
 * Thinking mode: model generates <think>...</think> before the answer.
@@ -10,14 +10,14 @@ import time
 
 from vllm import LLM, SamplingParams
 
-MODEL_ID = "chankhavu/Nemotron-Cascade-2-30B-A3B-AWQ-INT4"
+MODEL_ID = "chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"
 
 # mamba_ssm_cache_dtype="float32" is required to prevent gibberish from Mamba blocks
 llm = LLM(
     model=MODEL_ID,
-    quantization="awq",
     trust_remote_code=True,
     mamba_ssm_cache_dtype="float32",
+    kv_cache_dtype="fp8",
     max_model_len=8192,
     tensor_parallel_size=1,
 )
