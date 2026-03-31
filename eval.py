@@ -11,11 +11,30 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 
+def _check_syntax(program, pipeline):
+    """Run Clingo on the bare program to detect parse/ground errors before evaluation.
+
+    Returns an error string if syntax errors are found, or None if the program parses
+    cleanly (regardless of satisfiability).
+    """
+    status, result = pipeline.gen_answer_set(program)
+    if status is RuntimeError:
+        if result:
+            errors = "\n".join(str(x[1]).strip() for x in result)
+        else:
+            errors = "Unknown parse error"
+        return errors
+    return None
+
+
 def verify_on_training_examples(program, train_examples, pipeline):
     """Verify an ASP program against all training input-output examples.
 
     The program must use input(Row, Col, Color) as an input predicate (the
     harness injects those facts) and produce output(Row, Col, Color) atoms.
+
+    If the bare program fails Clingo's parser, evaluation is skipped entirely
+    and all examples are reported as clingo_error with the shared error message.
 
     Args:
         program: ASP program string (without input facts).
@@ -25,6 +44,26 @@ def verify_on_training_examples(program, train_examples, pipeline):
     Returns:
         list of result dicts, one per training example.
     """
+    # Syntax check on the bare program — avoids running Clingo N times for the
+    # same parse error, and gives clean error messages without line-number offsets
+    # introduced by the injected input facts.
+    syntax_error = _check_syntax(program, pipeline)
+    if syntax_error is not None:
+        return [
+            {
+                "example_idx": i,
+                "status": "clingo_error",
+                "n_answer_sets": 0,
+                "clingo_errors": syntax_error,
+                "correct": False,
+                "diff": None,
+                "accuracy": 0.0,
+                "grid_predicted": None,
+                "grid_expected": ex["output"],
+            }
+            for i, ex in enumerate(train_examples)
+        ]
+
     results = []
 
     for i, ex in enumerate(train_examples):
@@ -40,7 +79,7 @@ def verify_on_training_examples(program, train_examples, pipeline):
         result = {"example_idx": i}
 
         if status is RuntimeError:
-            errors = "\n".join(str(x[1]) for x in answer_sets_or_errors)
+            errors = "\n".join(str(x[1]).strip() for x in answer_sets_or_errors)
             result.update(
                 status="clingo_error",
                 n_answer_sets=0,

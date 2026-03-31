@@ -20,7 +20,7 @@ All run outputs are in `outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHM
   "dataset": "arc-v1-training",
   "n_train_examples": 5,
   "steps": {
-    "constants":    {"prompt": "...", "thinking": "...", "response": "...", "extracted": "..."},
+    "analysis":     {"prompt": "...", "thinking": "...", "response": "...", "extracted": "..."},
     "predicates":   {"prompt": "...", "thinking": "...", "response": "...", "extracted": "..."},
     "choice_rules": {"prompt": "...", "thinking": "...", "response": "...", "extracted": "..."},
     "constraints":  {"prompt": "...", "thinking": "...", "response": "...", "extracted": "..."}

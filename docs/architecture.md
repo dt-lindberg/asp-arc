@@ -23,7 +23,8 @@ logger.py                 # Logging setup (stdout + logs/<date>/log_*.log)
 vllm_engine.py            # vLLM batched inference wrapper (Qwen3-30B-A3B)
 think_logits_processor.py # Forces </think> after the thinking budget is exhausted
 config.py                 # All configuration: model path, inference params, paths
-prompts/		  # All prompts, defining each step
+prompts/                  # All prompts, defining each step
+eval/app.py               # Streamlit inspector for browsing run outputs
 ```
 
 ## Data Flow
@@ -34,7 +35,7 @@ main.py
   ├── load N puzzles (arc_loader.py)
   │     └── format each puzzle's train examples as text diagrams (utils.py)
   │
-  ├── STEP 1 — transformation (batched LLM call)
+  ├── STEP 1 — analysis (batched LLM call, step key: "analysis")
   │     Prompt: <EXAMPLES>
   │     Output: <ANALYSIS> describing the puzzle in natural language
   │
@@ -53,6 +54,8 @@ main.py
   ├── Assemble full program (constants + predicates + choice_rules + constraints)
   │
   ├── Verify on training examples (eval.py, sequential Clingo)
+  │     Syntax pre-check: run Clingo on bare program first
+  │       → if parse error: report clingo_error for all examples, skip loop
   │     For each example: prepend input(R,C,Color) facts → run Clingo
   │       → extract output(R,C,Color) atoms → compare to expected grid
   │       → produce diff string (pred/expected for wrong cells)
