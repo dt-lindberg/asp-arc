@@ -18,12 +18,12 @@ The app discovers run JSON files automatically — it searches `outputs/*.json` 
 ## File layout
 
 ```
-eval/
+streamlit-interface/
   app.py        # Single-page Streamlit app (entry point)
   __init__.py
 ```
 
-`eval/app.py` imports from the project root (`arc_loader`, `config`) via `sys.path` manipulation — no install step needed.
+`streamlit-interface/app.py` imports from the project root (`arc_loader`, `config`) via `sys.path` manipulation — no install step needed.
 
 ## What the app shows
 
@@ -54,14 +54,10 @@ ARC_COLORS = {
 }
 ```
 
-## Pitfalls
-
-**Widget key collisions when switching puzzles.** Streamlit caches widget values by key across reruns. Any `st.text_area`, `st.expander`, etc. that displays puzzle-specific content must include `puzzle_idx` in its key, otherwise switching puzzles in the sidebar leaves the previous puzzle's content displayed. The convention used here is `f"p{puzzle_idx}_<widget_name>"`. Every widget inside `show_steps()` and `show_refinements()` follows this pattern — keep it consistent when adding new ones.
-
 ## Extending the app
 
-- **New section**: add a function that takes `record` (the puzzle dict) and call it after the existing sections in `eval/app.py`. Use `st.subheader` for the title and wrap detail in `st.expander`.
-- **New page**: convert to multi-page by creating `eval/pages/<name>.py` and updating `eval/app.py` to use `st.navigation` (see `asp-gen-refinements/evaluation/app.py` for reference).
+- **New section**: add a function that takes `record` (the puzzle dict) and call it after the existing sections in `streamlit-interface/app.py`. Use `st.subheader` for the title and wrap detail in `st.expander`.
+- **New page**: convert to multi-page by creating `streamlit-interface/pages/<name>.py` and updating `streamlit-interface/app.py` to use `st.navigation` (see `asp-gen-refinements/streamlit-interfaceuation/app.py` for reference).
 - **Grid cell size**: adjust the `cell_px` parameter in `_grid_html()` — default is 26px.
 
 ## Key data paths in a record
