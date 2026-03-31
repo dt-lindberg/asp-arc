@@ -17,11 +17,4 @@ Your program must produce EXACTLY ONE answer set for each training example, and 
 Previous attempt(s) and feedback:
 <HISTORY>
 
-Write a complete, corrected ASP program that fixes all the issues identified above. Do not patch — write a fresh solution. The program should include:
-- Any auxiliary predicate rules needed (as normal ASP rules).
-- The output_cell domain rule and the choice rule assigning colors (use color(0..9) already available).
-- Integrity constraints encoding the transformation rule.
-
-Do NOT include color/1 facts or input/3 facts — these are provided by the harness.
-
-Output a single ```asp code block with the complete program.
+Write a complete, corrected ASP program that fixes all the issues identified above. Do NOT include color/1 facts or input/3 facts — these are provided by the harness. Output a single ```asp code block with the complete program.

@@ -10,14 +10,23 @@ import re
 def extract_code_blocks(response):
     """Extract content from triple-tick code blocks (```asp, ```prolog, etc.).
 
-    * Returns the first complete code block found.
+    * Prefers ```asp or ```prolog blocks over generic/unlabelled ones, to avoid
+      picking up grid diagrams or other code fences embedded in reasoning text.
+    * Falls back to the first complete block of any type.
     * Falls back to content after an unclosed opening fence.
     * Returns the original response unchanged if no fences found.
     """
+    # First: look for a labelled asp/prolog block
+    match = re.search(r"```(?:asp|prolog)\n(.*?)```", response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # Second: first complete block of any kind
     match = re.search(r"```[^\n]*\n(.*?)```", response, re.DOTALL)
     if match:
         return match.group(1).strip()
 
+    # Third: unclosed fence
     match = re.search(r"```[^\n]*\n(.*)", response, re.DOTALL)
     if match:
         return match.group(1).strip()
