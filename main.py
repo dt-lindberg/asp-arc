@@ -148,11 +148,12 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     N_CANDIDATES = 2
     logger.info(f"Multi-candidate generation ({N_CANDIDATES} candidates) for {n} puzzle(s)...")
 
-    # Each candidate uses a slightly different prompt (ASP comment suffix) to
-    # get a different cache key and thus a different random sample.
+    # Each candidate uses a different prompt suffix to encourage diverse encodings.
+    # Candidate 0: standard (direct derivation)
+    # Candidate 1: explicitly encourages choice+constraints strategy
     CAND_SUFFIXES = [
-        "",         # Candidate 0: standard prompt
-        "\n% Note: prefer the most concise, direct encoding of the rule.",  # Candidate 1
+        "",
+        "\n% Note: use the Choice + Constraints strategy (1 { output(R,C,V) : color(V) } 1 :- output_cell(R,C).)",
     ]
 
     all_cand_programs = []   # all_cand_programs[cand][puzzle]
