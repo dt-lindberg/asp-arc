@@ -1,0 +1,26 @@
+#!/bin/bash
+
+#SBATCH --job-name=ASPArc-Single
+#SBATCH --partition=gpu_h100
+#SBATCH --time=02:00:00
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=18
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc
+#SBATCH --output=outputs/slurm_single_%A.out
+
+module purge
+module load 2025
+module load CUDA/12.8.0
+module load Python/3.13.5-GCCcore-14.3.0
+
+mkdir -p outputs caches logs results
+
+source .venv/bin/activate
+
+# Run on a single puzzle known to have syntax errors (good test for syntax agent)
+python3 main.py \
+    --puzzle_ids 8d510a79
+
+echo ""
+echo "Job complete."

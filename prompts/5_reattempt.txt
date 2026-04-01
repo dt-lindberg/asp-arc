@@ -17,4 +17,6 @@ Your program must produce EXACTLY ONE answer set for each training example, and 
 Previous attempt(s) and feedback:
 <HISTORY>
 
-Write a complete, corrected ASP program that fixes all the issues identified above. Do NOT include color/1 facts or input/3 facts — these are provided by the harness. Output a single ```asp code block with the complete program.
+Analyse the feedback carefully and write a corrected ASP program. Focus on the logical rule — fix why the answer set is wrong, unsatisfiable, or underconstrained. If the feedback shows a Clingo syntax error, fix only that syntax issue while preserving all logic.
+
+Do NOT include color/1 facts or input/3 facts. Output a single ```asp code block with the complete program.

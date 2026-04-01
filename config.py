@@ -19,12 +19,17 @@ MAX_ATTEMPTS = 5
 SEVERELY_UNDERCONSTRAINED_THRESHOLD = 1000
 MAX_VARIABLE_ATOMS = 30
 
+# SYNTAX AGENT
+MAX_SYNTAX_ATTEMPTS = 6
+SYNTAX_GUIDE_PATH = "docs/asp_syntax_guide.md"
+
 # PIPELINE
 DEFAULT_ENGINE = "nemotron-cascade-2"
 
 PROMPT_PATHS = {
-    "single_step": "prompts/single_step.txt",
-    "reattempt":   "prompts/5_reattempt.txt",
+    "single_step":  "prompts/single_step.txt",
+    "reattempt":    "prompts/5_reattempt.txt",
+    "syntax_agent": "prompts/syntax_agent.txt",
 }
 
 # ARC DATASET
@@ -37,4 +42,4 @@ ARC_V2_EVALUATION = "arc-puzzles/ARC-AGI-2/data/evaluation"
 LOG_FORMAT = (
     "%(asctime)s [%(levelname)s] %(name)s - %(funcName)s:%(lineno)d > %(message)s"
 )
-ALLOWED_LOGGERS = ("__main__", "pipeline", "arc_loader", "eval", "nemotron_engine")
+ALLOWED_LOGGERS = ("__main__", "pipeline", "arc_loader", "eval", "nemotron_engine", "agent", "tools")

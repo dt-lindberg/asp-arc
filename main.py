@@ -17,8 +17,9 @@ from arc_loader import get_puzzles, get_puzzles_by_ids
 from pipeline import Pipeline
 from eval import verify_on_training_examples, build_train_feedback, all_correct
 from utils import format_examples_for_prompt, extract_code_blocks
+from agent import run_syntax_agent
 from logger import setup_logging, get_logger
-from config import DEFAULT_ENGINE, MAX_ATTEMPTS, SEED
+from config import DEFAULT_ENGINE, MAX_ATTEMPTS, MAX_SYNTAX_ATTEMPTS, SEED
 
 load_dotenv()
 setup_logging(log_level=os.getenv("LOG_LEVEL", "info"))
@@ -80,6 +81,7 @@ def _make_record(puzzle, run_id):
         "full_program": "",
         "train_verifications": [],
         "all_train_correct": False,
+        "syntax_agent": None,
         "refinements": [],
         "final_correct": False,
     }
@@ -179,6 +181,73 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
 
     n_solved = sum(records[i]["all_train_correct"] for i in range(n))
     logger.info(f"After generation: {n_solved}/{n} puzzles pass all training examples")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Syntax-fix agent stage
+    # Run the agentic loop for any puzzle whose program has syntax errors.
+    # The loop runs sequentially (one puzzle at a time) since each conversation
+    # is multi-turn and cannot be batched.
+    # ──────────────────────────────────────────────────────────────────────
+    engine = pipeline._get_engine()  # already loaded during generation
+
+    for i in range(n):
+        train_results = train_results_list[i]
+        has_syntax_error = (
+            bool(train_results) and train_results[0]["status"] == "clingo_error"
+        )
+
+        if not has_syntax_error:
+            records[i]["syntax_agent"] = {"triggered": False}
+            continue
+
+        syntax_error = train_results[0]["clingo_errors"]
+        logger.info(
+            f"  [{puzzles[i]['id']}] syntax error detected — running syntax agent "
+            f"(max {MAX_SYNTAX_ATTEMPTS} round(s))..."
+        )
+
+        fixed_program, syntax_steps = run_syntax_agent(
+            program=programs[i],
+            syntax_error=syntax_error,
+            system_prompt=pipeline.prompt["syntax_agent"],
+            engine=engine,
+            pipeline=pipeline,
+            max_attempts=MAX_SYNTAX_ATTEMPTS,
+        )
+
+        # Re-verify the (possibly fixed) program
+        logger.info(f"  [{puzzles[i]['id']}] re-verifying after syntax agent...")
+        t0 = time.time()
+        new_train_results = verify_on_training_examples(
+            fixed_program, puzzles[i]["train"], pipeline
+        )
+        elapsed = round(time.time() - t0, 2)
+
+        syntax_fixed = (
+            not new_train_results or new_train_results[0]["status"] != "clingo_error"
+        )
+        n_correct = sum(r["correct"] for r in new_train_results)
+        logger.info(
+            f"  [{puzzles[i]['id']}] post-syntax: {n_correct}/{len(new_train_results)} correct "
+            f"in {elapsed}s | syntax_fixed={syntax_fixed}"
+        )
+
+        records[i]["syntax_agent"] = {
+            "triggered": True,
+            "initial_error": syntax_error,
+            "syntax_fixed": syntax_fixed,
+            "steps": syntax_steps,
+        }
+
+        # Update all pipeline state for this puzzle
+        programs[i] = fixed_program
+        records[i]["full_program"] = fixed_program
+        records[i]["train_verifications"] = new_train_results
+        records[i]["all_train_correct"] = all_correct(new_train_results)
+        train_results_list[i] = new_train_results
+
+    n_solved = sum(records[i]["all_train_correct"] for i in range(n))
+    logger.info(f"After syntax fix: {n_solved}/{n} puzzles pass all training examples")
 
     # ──────────────────────────────────────────────────────────────────────
     # Refinement loop

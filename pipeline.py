@@ -17,6 +17,7 @@ from config import (
     CLINGO_MAX_MODELS,
     CLINGO_TIMEOUT,
     PROMPT_PATHS,
+    SYNTAX_GUIDE_PATH,
 )
 
 setup_logging(log_level=os.getenv("LOG_LEVEL", "debug"))
@@ -64,6 +65,21 @@ class Pipeline:
         for kind, path in self.path_prompt.items():
             with open(path, encoding="utf-8") as f:
                 self.prompt[kind] = f.read().strip()
+
+        # Inject the syntax guide into the syntax_agent prompt
+        if "syntax_agent" in self.prompt:
+            with open(SYNTAX_GUIDE_PATH, encoding="utf-8") as f:
+                # Strip YAML frontmatter (lines between --- markers at top)
+                raw = f.read()
+                if raw.startswith("---"):
+                    end = raw.find("---", 3)
+                    guide_content = raw[end + 3:].strip() if end != -1 else raw
+                else:
+                    guide_content = raw.strip()
+            self.prompt["syntax_agent"] = self.prompt["syntax_agent"].replace(
+                "<SYNTAX_GUIDE>", guide_content
+            )
+
         logger.debug(f"Loaded {len(self.prompt)} prompt templates")
 
     def _cache_path(self, kind):
