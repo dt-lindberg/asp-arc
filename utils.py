@@ -31,7 +31,7 @@ def extract_code_blocks(response):
     if match:
         return match.group(1).strip()
 
-    return response
+    return ""
 
 
 # ---------------------------------------------------------------------------

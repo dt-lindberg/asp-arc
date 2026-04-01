@@ -9,20 +9,10 @@ import re
 import time
 
 from logger import setup_logging, get_logger
+from config import MODEL_PATH, SEED, MAX_MODEL_LEN, TEMPERATURE, TOP_P, TOP_K
 
 setup_logging(log_level=os.getenv("LOG_LEVEL", "debug"))
 logger = get_logger(__name__)
-
-NEMOTRON_MODEL_PATH = "chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"
-# MAX_TOKENS = 8192           # thinking (≤REASONING_BUDGET) + answer
-MAX_MODEL_LEN = 262_144       # total context
-# REASONING_BUDGET = 4096     # max thinking tokens; the model is trained to follow
-                            # the {thinking token budget: N} annotation in the prompt
-                            # and stop reasoning after N tokens to write the answer.
-                            # Previously used wrong kwarg name 'thinking_budget'.
-TEMPERATURE = 1.0
-TOP_P = 0.95
-TOP_K = 20
 
 
 def _split_thinking(text):
@@ -49,23 +39,19 @@ def _split_thinking(text):
 
 
 class NemotronEngine:
-    def __init__(
-        self,
-        # max_tokens=MAX_TOKENS,
-        max_model_len=MAX_MODEL_LEN,
-        temperature=TEMPERATURE,
-    ):
+    def __init__(self, max_model_len=MAX_MODEL_LEN, temperature=TEMPERATURE):
         from vllm import LLM, SamplingParams
 
-        logger.info(f"Loading Nemotron model: {NEMOTRON_MODEL_PATH}")
+        logger.info(f"Loading model: {MODEL_PATH}")
         t0 = time.perf_counter()
         self.llm = LLM(
-            model=NEMOTRON_MODEL_PATH,
+            model=MODEL_PATH,
             trust_remote_code=True,
             mamba_ssm_cache_dtype="float32",
             kv_cache_dtype="fp8",
             max_model_len=max_model_len,
             tensor_parallel_size=1,
+            seed=SEED,
         )
         logger.info(f"Model loaded in {time.perf_counter() - t0:.2f}s")
 
@@ -73,7 +59,7 @@ class NemotronEngine:
             temperature=temperature,
             top_p=TOP_P,
             top_k=TOP_K,
-            max_tokens=max_tokens,
+            max_tokens=max_model_len,  # vLLM clamps to remaining context; MAX_MODEL_LEN is the effective ceiling
         )
 
     def generate_batch(self, messages_list):
@@ -88,12 +74,9 @@ class NemotronEngine:
         logger.info(f"Generating batch of {len(messages_list)} prompts via llm.chat()...")
         t0 = time.perf_counter()
 
-        # Pass thinking_budget explicitly to prevent the chat template from
-        # filling remaining context with budget tokens (which causes token overflow).
         outputs = self.llm.chat(
             messages=messages_list,
             sampling_params=self.sampling_params,
-            # chat_template_kwargs={"reasoning_budget": REASONING_BUDGET},
         )
         t_gen = time.perf_counter() - t0
 

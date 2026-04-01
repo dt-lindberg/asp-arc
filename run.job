@@ -1,17 +1,13 @@
 #!/bin/bash
 
 #SBATCH --job-name=ASPArc
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --time=02:00:00
 #SBATCH --gpus=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --chdir=/home/dlindberg/Projects/asp-arc
 #SBATCH --output=outputs/slurm_output_%A.out
-
-# NOTE: Before running this job for the first time, make sure the venv exists:
-#   sbatch copy_venv.job
-# Then verify: ls /home/dlindberg/Projects/asp-arc/.venv/
 
 module purge
 module load 2025
@@ -24,8 +20,7 @@ source .venv/bin/activate
 
 python3 main.py \
     --dataset arc-v1-training \
-    --num 3 \
-    --engine qwen3-30b-local
+    --num 3
 
 echo ""
 echo "Job complete."

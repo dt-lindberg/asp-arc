@@ -14,8 +14,6 @@ import threading
 from logger import setup_logging, get_logger
 from config import (
     DEFAULT_ENGINE,
-    TEMPERATURE,
-    MAX_TOKENS,
     CLINGO_MAX_MODELS,
     CLINGO_TIMEOUT,
     PROMPT_PATHS,
@@ -34,13 +32,11 @@ class Context:
 class Pipeline:
     def __init__(self, args=None):
         self.engine = DEFAULT_ENGINE
-        self.temperature = TEMPERATURE
-        self.max_tokens = MAX_TOKENS
         self.path_prompt = dict(PROMPT_PATHS)
         self.prompt = {}
         self.path_cache = {}
         self.cache = {}
-        self._vllm_engine = None
+        self._engine = None
 
         if args:
             for k, v in args.items():
@@ -54,14 +50,11 @@ class Pipeline:
     # ------------------------------------------------------------------
 
     def _get_engine(self):
-        if self._vllm_engine is None:
-            from vllm_engine import VLLMEngine
+        if self._engine is None:
+            from nemotron_engine import NemotronEngine
 
-            self._vllm_engine = VLLMEngine(
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-            )
-        return self._vllm_engine
+            self._engine = NemotronEngine()
+        return self._engine
 
     # ------------------------------------------------------------------
     # Prompts & cache
@@ -108,7 +101,7 @@ class Pipeline:
         """Generate responses for a batch of puzzles using a prompt template.
 
         Args:
-            kind: prompt key (e.g. "analysis", "predicates").
+            kind: prompt key (e.g. "single_step").
             replaces: list of {placeholder: value} dicts, one per puzzle.
 
         Returns:
@@ -132,11 +125,11 @@ class Pipeline:
         return self._gen_from_prompts(kind, prompts)
 
     # ------------------------------------------------------------------
-    # Internal: cache check + vLLM call
+    # Internal: cache check + engine call
     # ------------------------------------------------------------------
 
     def _gen_from_prompts(self, kind, prompts):
-        """Check cache, call vLLM for misses, return (thinking, response) list."""
+        """Check cache, call engine for misses, return (thinking, response) list."""
         results = [None] * len(prompts)
         miss_indices = []
         miss_messages = []

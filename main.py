@@ -1,12 +1,8 @@
 """Entry point for the ARC-ASP pipeline.
 
-Runs the 4-step decomposed generation (analysis → predicates → choice_rules →
-constraints) across a batch of puzzles, verifies each program on the training
-examples, then runs a refinement loop for puzzles that don't yet pass.
-
-Steps 1 and 2 produce natural-language outputs (analysis and predicate list).
-Steps 3 and 4 produce ASP code. color(0..9) is hardcoded; the assembled program
-is: color(0..9) + choice_rules + constraints.
+Runs a single-prompt generation (single_step) across a batch of puzzles,
+verifies each program on the training examples, then runs a refinement loop
+for puzzles that don't yet pass.
 
 Results are saved as JSON to outputs/<run_id>.json.
 """
@@ -20,19 +16,9 @@ from dotenv import load_dotenv
 from arc_loader import get_puzzles, get_puzzles_by_ids
 from pipeline import Pipeline
 from eval import verify_on_training_examples, build_train_feedback, all_correct
-from utils import (
-    format_examples_for_prompt,
-    extract_code_blocks,
-)
+from utils import format_examples_for_prompt, extract_code_blocks
 from logger import setup_logging, get_logger
-from config import (
-    DEFAULT_ENGINE,
-    TEMPERATURE,
-    MAX_TOKENS,
-    MAX_ATTEMPTS,
-    MAX_MODEL_LEN,
-    SEED,
-)
+from config import DEFAULT_ENGINE, MAX_ATTEMPTS, SEED
 
 load_dotenv()
 setup_logging(log_level=os.getenv("LOG_LEVEL", "info"))
@@ -55,8 +41,18 @@ def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, hist
     Returns:
         Full prompt string.
     """
+    # Cap program length as a safety guard against extraction failures where the
+    # full model output (potentially 100K+ chars) ends up stored as the "program".
+    MAX_PROGRAM_IN_HISTORY = 8_000
+
     history_parts = []
     for idx, (program, feedback) in enumerate(history, start=1):
+        if len(program) > MAX_PROGRAM_IN_HISTORY:
+            logger.warning(
+                f"History program for attempt {idx} is {len(program)} chars "
+                f"(likely an extraction failure) — truncating to {MAX_PROGRAM_IN_HISTORY} chars"
+            )
+            program = program[:MAX_PROGRAM_IN_HISTORY] + "\n... [truncated — extraction likely failed]"
         history_parts.append(
             f"<attempt_{idx}>\n```asp\n{program}\n```\n\n"
             f"<feedback>\n{feedback}\n</feedback>\n</attempt_{idx}>"
@@ -67,31 +63,7 @@ def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, hist
     prompt = instruction
     prompt = prompt.replace("<EXAMPLES>", formatted_examples)
     prompt = prompt.replace("<HISTORY>", history_str)
-    full = system_prompt + "\n\n" + prompt
-
-    # Guard against context overflow: if prompt is too long, truncate the oldest
-    # program in the history (keep feedback, shorten code).
-    # Rough estimate: 1 token ≈ 4 chars; leave MAX_TOKENS budget for output.
-    char_budget = (MAX_MODEL_LEN - MAX_TOKENS) * 4
-    if len(full) > char_budget and len(history) > 1:
-        logger.warning(
-            f"Reattempt prompt ({len(full)} chars) may exceed context budget "
-            f"({char_budget} chars). Truncating oldest program in history."
-        )
-        # Replace the oldest full program with a [truncated] placeholder
-        old_prog, old_feedback = history[0]
-        truncated_prog = old_prog[:500] + "\n... [truncated for context budget]"
-        history_parts[0] = (
-            f"<attempt_1>\n```asp\n{truncated_prog}\n```\n\n"
-            f"<feedback>\n{old_feedback}\n</feedback>\n</attempt_1>"
-        )
-        history_str = "\n\n".join(history_parts)
-        prompt = instruction
-        prompt = prompt.replace("<EXAMPLES>", formatted_examples)
-        prompt = prompt.replace("<HISTORY>", history_str)
-        full = system_prompt + "\n\n" + prompt
-
-    return full
+    return system_prompt + "\n\n" + prompt
 
 
 # ---------------------------------------------------------------------------
@@ -140,18 +112,17 @@ def main(args):
     logger.info(f"Loaded {len(puzzles)} puzzle(s): {[p['id'] for p in puzzles]}")
 
     # ── Init pipeline ─────────────────────────────────────────────────────
-    pipeline = Pipeline({"engine": args.engine, "temperature": args.temperature, "max_tokens": args.max_tokens})
+    pipeline = Pipeline({"engine": args.engine})
     pipeline.load_prompts()
     pipeline.load_cache()
 
     # ── Pre-format examples for all puzzles ───────────────────────────────
     formatted_examples = [format_examples_for_prompt(p["train"]) for p in puzzles]
-    n = len(puzzles)
 
     records = [_make_record(p, run_id) for p in puzzles]
 
     try:
-        _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id)
+        _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id)
     except Exception as e:
         logger.error(f"Pipeline crashed: {e}", exc_info=True)
         logger.info("Saving partial results before exiting...")
@@ -161,109 +132,30 @@ def main(args):
     return records
 
 
-def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
+def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     n = len(puzzles)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Step 1: Analysis — natural-language explanation + metadata
+    # Single-step generation
     # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Step 1: generating analysis for {n} puzzle(s)...")
-    replaces_1 = [{"<EXAMPLES>": fe} for fe in formatted_examples]
-    results_1 = pipeline.gen_response_batch("analysis", replaces_1)
+    logger.info(f"Single-step generation for {n} puzzle(s)...")
+    replaces = [{"<EXAMPLES>": fe} for fe in formatted_examples]
+    results = pipeline.gen_response_batch("single_step", replaces)
 
-    # Step 1 output is natural language (XML-structured); capture full response.
-    analysis_list = []
-    for i, (thinking, response) in enumerate(results_1):
-        analysis_list.append(response)
-        prompt_used = pipeline.prompt["analysis"].replace("<EXAMPLES>", formatted_examples[i])
-        _record_step(records[i], "analysis", prompt_used, thinking, response, response)
-        logger.info(f"  [{puzzles[i]['id']}] analysis generated ({len(response)} chars)")
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Step 2: Predicates — natural-language bullet list, no ASP code
-    # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Step 2: generating predicate list for {n} puzzle(s)...")
-    replaces_2 = [
-        {"<EXAMPLES>": fe, "<ANALYSIS>": a}
-        for fe, a in zip(formatted_examples, analysis_list)
-    ]
-    results_2 = pipeline.gen_response_batch("predicates", replaces_2)
-
-    # Step 2 output is also natural language; capture full response.
-    predicates_list = []
-    for i, (thinking, response) in enumerate(results_2):
-        predicates_list.append(response)
-        prompt_used = (
-            pipeline.prompt["predicates"]
-            .replace("<EXAMPLES>", formatted_examples[i])
-            .replace("<ANALYSIS>", analysis_list[i])
-        )
-        _record_step(records[i], "predicates", prompt_used, thinking, response, response)
-        logger.info(f"  [{puzzles[i]['id']}] predicate list generated ({len(response)} chars)")
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Step 3: Choice rules — ASP code
-    # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Step 3: generating choice rules for {n} puzzle(s)...")
-    replaces_3 = [
-        {"<EXAMPLES>": fe, "<ANALYSIS>": a, "<PREDICATES>": p}
-        for fe, a, p in zip(formatted_examples, analysis_list, predicates_list)
-    ]
-    results_3 = pipeline.gen_response_batch("choice_rules", replaces_3)
-
-    choice_rules_list = []
-    for i, (thinking, response) in enumerate(results_3):
-        extracted = extract_code_blocks(response)
-        choice_rules_list.append(extracted)
-        prompt_used = (
-            pipeline.prompt["choice_rules"]
-            .replace("<EXAMPLES>", formatted_examples[i])
-            .replace("<ANALYSIS>", analysis_list[i])
-            .replace("<PREDICATES>", predicates_list[i])
-        )
-        _record_step(records[i], "choice_rules", prompt_used, thinking, response, extracted)
-        logger.info(f"  [{puzzles[i]['id']}] choice rules extracted ({len(extracted)} chars)")
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Step 4: Constraints — ASP code (may also include helper predicate rules)
-    # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Step 4: generating constraints for {n} puzzle(s)...")
-    replaces_4 = [
-        {"<EXAMPLES>": fe, "<ANALYSIS>": a, "<PREDICATES>": p, "<CHOICE_RULES>": cr}
-        for fe, a, p, cr in zip(
-            formatted_examples, analysis_list, predicates_list, choice_rules_list
-        )
-    ]
-    results_4 = pipeline.gen_response_batch("constraints", replaces_4)
-
-    constraints_list = []
-    for i, (thinking, response) in enumerate(results_4):
-        extracted = extract_code_blocks(response)
-        constraints_list.append(extracted)
-        prompt_used = (
-            pipeline.prompt["constraints"]
-            .replace("<EXAMPLES>", formatted_examples[i])
-            .replace("<ANALYSIS>", analysis_list[i])
-            .replace("<PREDICATES>", predicates_list[i])
-            .replace("<CHOICE_RULES>", choice_rules_list[i])
-        )
-        _record_step(records[i], "constraints", prompt_used, thinking, response, extracted)
-        logger.info(f"  [{puzzles[i]['id']}] constraints extracted ({len(extracted)} chars)")
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Assemble full programs
-    # Colors are hardcoded: analysis and predicates are NL, not ASP code.
-    # ──────────────────────────────────────────────────────────────────────
     programs = []
+    for i, (thinking, response) in enumerate(results):
+        extracted = extract_code_blocks(response)
+        programs.append(extracted)
+        prompt_used = pipeline.prompt["single_step"].replace("<EXAMPLES>", formatted_examples[i])
+        _record_step(records[i], "generation", prompt_used, thinking, response, extracted)
+        logger.info(
+            f"  [{puzzles[i]['id']}] generated ({len(extracted)} chars ASP, "
+            f"{len(thinking)} chars thinking)"
+        )
+
+    # ── Assemble full programs ────────────────────────────────────────────
     for i in range(n):
-        parts = ["% === Colors (hardcoded) ===\ncolor(0..9)."]
-        if choice_rules_list[i]:
-            parts.append(f"% === Choice rules ===\n{choice_rules_list[i]}")
-        if constraints_list[i]:
-            parts.append(f"% === Constraints ===\n{constraints_list[i]}")
-        program = "\n\n".join(parts)
-        programs.append(program)
-        records[i]["full_program"] = program
+        records[i]["full_program"] = programs[i]
 
     # ──────────────────────────────────────────────────────────────────────
     # Verify on training examples (Clingo, sequential)
@@ -286,7 +178,7 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
         )
 
     n_solved = sum(records[i]["all_train_correct"] for i in range(n))
-    logger.info(f"After step 4: {n_solved}/{n} puzzles pass all training examples")
+    logger.info(f"After generation: {n_solved}/{n} puzzles pass all training examples")
 
     # ──────────────────────────────────────────────────────────────────────
     # Refinement loop
@@ -314,17 +206,15 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
             f"Refinement attempt {attempt}/{MAX_ATTEMPTS}: {len(active)} active puzzle(s)"
         )
 
-        # Build raw prompts for all active puzzles
-        raw_prompts = []
-        for i in active:
-            raw_prompts.append(
-                _build_reattempt_prompt(
-                    system_prompt,
-                    instruction,
-                    formatted_examples[i],
-                    histories[i],
-                )
+        raw_prompts = [
+            _build_reattempt_prompt(
+                system_prompt,
+                instruction,
+                formatted_examples[i],
+                histories[i],
             )
+            for i in active
+        ]
 
         gen_results = pipeline.gen_response_raw_batch("reattempt", raw_prompts)
 
@@ -364,7 +254,7 @@ def _run_pipeline(args, puzzles, pipeline, formatted_examples, records, run_id):
                 feedback = build_train_feedback(new_train_results)
                 histories[i].append((new_program, feedback))
 
-    # Mark final correctness for puzzles solved at step 0
+    # Mark final correctness for puzzles solved on first attempt
     for i in range(n):
         if records[i]["all_train_correct"] and not records[i]["refinements"]:
             records[i]["final_correct"] = True
@@ -404,7 +294,5 @@ if __name__ == "__main__":
         help="Specific puzzle IDs to run (overrides --num)",
     )
     parser.add_argument("--engine", default=DEFAULT_ENGINE, help="Engine label for cache naming")
-    parser.add_argument("--temperature", default=TEMPERATURE, type=float)
-    parser.add_argument("--max_tokens", default=MAX_TOKENS, type=int)
     args = parser.parse_args()
     main(args)
