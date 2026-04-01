@@ -4,7 +4,7 @@ Runs a single-prompt generation (single_step) across a batch of puzzles,
 verifies each program on the training examples, then runs a refinement loop
 for puzzles that don't yet pass.
 
-Results are saved as JSON to outputs/<run_id>.json.
+Results are saved as JSON to results/<run_id>.json.
 """
 
 import argparse
@@ -275,7 +275,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
 
 
 def _save_results(records, run_id):
-    out_path = os.path.join("outputs", f"{run_id}.json")
+    out_path = os.path.join("results", f"{run_id}.json")
     with open(out_path, "w") as f:
         json.dump(records, f, indent=2)
     logger.info(f"Results saved to {out_path}")

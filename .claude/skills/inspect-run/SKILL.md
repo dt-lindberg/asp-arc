@@ -1,6 +1,6 @@
 ---
 name: inspect-run
-description: Inspect the output of an asp-arc pipeline run. Use when asked to check results, debug a run, or evaluate the quality of LLM-generated ASP programs. Loads outputs/<run_id>.json and surfaces key information: prompts sent, LLM thinking, generated programs, Clingo verification results, and grid diffs.
+description: Inspect the output of an asp-arc pipeline run. Use when asked to check results, debug a run, or evaluate the quality of LLM-generated ASP programs. Loads results/<run_id>.json and surfaces key information: prompts sent, LLM thinking, generated programs, Clingo verification results, and grid diffs.
 ---
 
 # Skill: inspect-run
@@ -9,7 +9,7 @@ Use this skill to examine a completed asp-arc pipeline run.
 
 ## Run output location
 
-All run outputs are in `outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHMMSS` timestamp.
+All run outputs are in `results/<run_id>.json` where `run_id` is a `YYYYMMDD_HHMMSS` timestamp.
 
 ## JSON structure per puzzle
 
@@ -60,7 +60,7 @@ All run outputs are in `outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHM
 ```python
 import json
 
-with open("outputs/<run_id>.json") as f:
+with open("results/<run_id>.json") as f:
     records = json.load(f)
 
 for r in records:

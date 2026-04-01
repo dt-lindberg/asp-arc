@@ -393,6 +393,10 @@ def _find_run_files():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     files = []
 
+    results_dir = os.path.join(root, "results")
+    if os.path.isdir(results_dir):
+        files.extend(glob.glob(os.path.join(results_dir, "*.json")))
+
     outputs_dir = os.path.join(root, "outputs")
     if os.path.isdir(outputs_dir):
         files.extend(glob.glob(os.path.join(outputs_dir, "*.json")))

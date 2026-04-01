@@ -134,6 +134,7 @@ def verify_on_training_examples(program, train_examples, pipeline):
                 accuracy=round(accuracy, 4),
                 grid_predicted=predicted,
                 grid_expected=expected,
+                answer_set=atoms,
             )
             logger.debug(
                 f"  Example {i}: {'CORRECT' if correct else f'WRONG (acc={accuracy:.2f})'}"
