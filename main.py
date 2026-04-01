@@ -17,7 +17,7 @@ from arc_loader import get_puzzles, get_puzzles_by_ids
 from pipeline import Pipeline
 from eval import verify_on_training_examples, build_train_feedback, all_correct, _check_syntax as _check_syntax_fn
 from utils import format_examples_for_prompt, extract_code_blocks
-from agent import run_syntax_agent, quick_syntax_fix
+from agent import run_syntax_agent, quick_syntax_fix, rewrite_syntax_fix
 from logger import setup_logging, get_logger
 from config import DEFAULT_ENGINE, MAX_ATTEMPTS, MAX_SYNTAX_ATTEMPTS, SEED
 
@@ -178,6 +178,14 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
 
         for cand_idx in range(N_CANDIDATES):
             prog = all_cand_programs[cand_idx][i]
+            # Apply cheap regex fixes before evaluating so syntax-fixable candidates
+            # aren't penalised for deterministic mistakes the model keeps making.
+            quick_prog, n_q = quick_syntax_fix(prog)
+            if n_q > 0:
+                prog = quick_prog
+                logger.info(
+                    f"  [{puzzles[i]['id']}] cand {cand_idx}: quick_fix applied {n_q} fix(es)"
+                )
             cand_results = verify_on_training_examples(prog, puzzles[i]["train"], pipeline)
             n_correct = sum(r["correct"] for r in cand_results)
             avg_acc = sum(r["accuracy"] for r in cand_results) / max(len(cand_results), 1)
@@ -282,8 +290,43 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             syntax_error = quick_err
             logger.info(f"  [{puzzles[i]['id']}] quick_fix partial, remaining: {syntax_error[:120]}")
 
+        # Stage 2: single-shot LLM rewrite (faster than multi-turn agent)
         logger.info(
-            f"  [{puzzles[i]['id']}] syntax error detected — running syntax agent "
+            f"  [{puzzles[i]['id']}] syntax error — trying single-shot rewrite (3 attempts)..."
+        )
+        rewritten, n_rewrite_rounds, rewrite_err = rewrite_syntax_fix(
+            program=programs[i],
+            syntax_error=syntax_error,
+            engine=engine,
+            pipeline=pipeline,
+            max_rewrites=3,
+        )
+
+        syntax_agent_record = {
+            "triggered": True,
+            "initial_error": syntax_error,
+            "rewrite_rounds": n_rewrite_rounds,
+        }
+
+        if rewrite_err is None:
+            # Rewrite resolved all syntax errors
+            logger.info(f"  [{puzzles[i]['id']}] rewrite fixed syntax in {n_rewrite_rounds} round(s)!")
+            programs[i] = rewritten
+            records[i]["syntax_agent"] = {**syntax_agent_record, "syntax_fixed": True, "steps": []}
+            new_train_results = verify_on_training_examples(
+                rewritten, puzzles[i]["train"], pipeline
+            )
+            records[i]["train_verifications"] = new_train_results
+            records[i]["all_train_correct"] = all_correct(new_train_results)
+            records[i]["full_program"] = rewritten
+            train_results_list[i] = new_train_results
+            continue
+
+        # Rewrite didn't fully fix — fall back to multi-turn tool agent
+        programs[i] = rewritten
+        syntax_error = rewrite_err
+        logger.info(
+            f"  [{puzzles[i]['id']}] rewrite partial — falling back to tool agent "
             f"(max {MAX_SYNTAX_ATTEMPTS} round(s))..."
         )
 
@@ -314,8 +357,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         )
 
         records[i]["syntax_agent"] = {
-            "triggered": True,
-            "initial_error": syntax_error,
+            **syntax_agent_record,
             "syntax_fixed": syntax_fixed,
             "steps": syntax_steps,
         }

@@ -1,10 +1,11 @@
-"""Agentic syntax-fix loop for ASP programs.
+"""Syntax-fix routines for ASP programs.
 
-The model iteratively calls run_clingo (to test snippets) and edit_code
-(to patch the current program) until syntax errors are resolved or
-max_attempts is exhausted.
+Three-stage approach:
+1. quick_syntax_fix  — deterministic regex fixes (no LLM)
+2. rewrite_syntax_fix — single-shot LLM rewrite (fast, direct)
+3. run_syntax_agent   — multi-turn tool-call loop (fallback)
 
-Tool calls are emitted as <tool_call> XML blocks and parsed here.
+Tool calls in stage 3 are emitted as <tool_call> XML blocks.
 Tool responses are injected back as user messages with <tool_response> tags,
 following the Nemotron tool-use protocol (docs/nemotron_tool_usage.md).
 """
@@ -114,6 +115,87 @@ def quick_syntax_fix(program):
         logger.info(f"  [quick_fix] Fixed {count} aggregate_all/3 call(s) (SWI-Prolog → Clingo)")
 
     return result, n_fixes
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: single-shot LLM rewrite
+# ─────────────────────────────────────────────────────────────────────────────
+
+_REWRITE_SYSTEM = (
+    "You are a Clingo/ASP syntax expert. "
+    "Fix ONLY syntax errors — never change program logic or semantics."
+)
+
+_REWRITE_GUIDE = """\
+Common Clingo syntax fixes (apply immediately):
+  aggregate(N=#count,cond,N)    →  N = #count { _ : cond }
+  aggregate_all(#count,cond,N)  →  N = #count { _ : cond }
+  C #mod 2                      →  C \\ 2
+  #min{...} = Var               →  Var = #min{...}
+  { } exactly N :-              →  N { } N :-
+  #count(...)                   →  #count{...}
+  #sum(...)                     →  #sum{...}
+  #const UPPER = N.             →  #const upper = N.
+  X = #max{...}.  (standalone)  →  max_val(X) :- X = #max{...}.
+"""
+
+
+def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
+    """Attempt to fix syntax errors via direct single-shot LLM rewrites.
+
+    Much faster than the multi-turn tool loop and avoids the tool-calling
+    failure modes (edit_code old_str mismatches, run_clingo over-use).
+
+    Args:
+        program:       Current ASP program string (may have syntax errors).
+        syntax_error:  Clingo error string.
+        engine:        NemotronEngine instance.
+        pipeline:      Pipeline instance (for _check_syntax calls).
+        max_rewrites:  Maximum rewrite attempts before giving up.
+
+    Returns:
+        (fixed_program, n_rounds_used, final_error)
+        fixed_program: best program state at exit.
+        n_rounds_used: how many LLM calls were made.
+        final_error:   None if syntax clean, else the remaining error string.
+    """
+    current_program = program
+    current_error = syntax_error
+
+    for attempt in range(1, max_rewrites + 1):
+        annotated = _annotate_clingo_error(current_error)
+        logger.info(f"  [rewrite] attempt {attempt}/{max_rewrites}")
+
+        user_content = (
+            f"{_REWRITE_GUIDE}\n\n"
+            f"Fix the Clingo syntax errors in this program. "
+            f"Output the COMPLETE fixed program in ONE ```asp code block.\n\n"
+            f"Program:\n```asp\n{current_program}\n```\n\n"
+            f"Clingo errors:\n{annotated}"
+        )
+        messages = [
+            {"role": "system", "content": _REWRITE_SYSTEM},
+            {"role": "user", "content": user_content},
+        ]
+
+        thinking, response = engine.generate_batch([messages])[0]
+        extracted = extract_code_blocks(response)
+
+        if extracted:
+            current_program = extracted
+            logger.info(f"  [rewrite] extracted program ({len(current_program)} chars)")
+        else:
+            logger.info("  [rewrite] no code block in response — keeping current program")
+
+        err = _check_syntax(current_program, pipeline)
+        if err is None:
+            logger.info(f"  [rewrite] syntax clean after {attempt} rewrite(s)")
+            return current_program, attempt, None
+
+        logger.info(f"  [rewrite] still has errors after attempt {attempt}")
+        current_error = err
+
+    return current_program, max_rewrites, current_error
 
 
 def parse_tool_call(text):
