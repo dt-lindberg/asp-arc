@@ -20,6 +20,8 @@ import streamlit as st
 # Project root on path so arc_loader, config etc. are importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from utils import grid_to_input_facts
+
 st.set_page_config(page_title="ARC-ASP Inspector", layout="wide")
 
 # ---------------------------------------------------------------------------
@@ -252,6 +254,38 @@ def show_program(code, errors_str=""):
 
 
 # ---------------------------------------------------------------------------
+# Injected-facts program view
+# ---------------------------------------------------------------------------
+
+
+def show_program_with_facts_toggle(program, examples, errors_str, state_key_prefix):
+    """Show program with a toggle to prepend injected facts for a chosen example."""
+    if not program:
+        st.caption("(no program)")
+        return
+
+    show_facts = st.checkbox(
+        "Show with injected facts",
+        key=f"{state_key_prefix}_show_facts",
+    )
+
+    if show_facts and examples:
+        ex_labels = [f"Example {i + 1}" for i in range(len(examples))]
+        chosen = st.selectbox(
+            "Inject facts for",
+            options=range(len(examples)),
+            format_func=lambda i: ex_labels[i],
+            key=f"{state_key_prefix}_ex_select",
+        )
+        injected = grid_to_input_facts(examples[chosen]["input"])
+        display_program = injected + "\n\n" + program
+    else:
+        display_program = program
+
+    show_program(display_program, errors_str)
+
+
+# ---------------------------------------------------------------------------
 # Step display
 # ---------------------------------------------------------------------------
 
@@ -339,14 +373,16 @@ def show_refinements(refinements, examples, puzzle_idx):
                 )
 
             program = ref.get("program", "")
-            # Collect all errors across examples to highlight lines
             all_errors = " ".join(
                 v.get("clingo_errors", "") or ""
                 for v in ref.get("train_verifications", [])
             )
             if program:
                 st.markdown("**Program**")
-                show_program(program, all_errors)
+                show_program_with_facts_toggle(
+                    program, examples, all_errors,
+                    f"p{puzzle_idx}_ref_{attempt}",
+                )
 
             st.markdown("**Training verification**")
             show_verification_grids(ref.get("train_verifications", []), examples)
@@ -469,15 +505,11 @@ show_steps(record.get("steps", {}), puzzle_idx)
 
 st.subheader("Assembled Program")
 full_program = record.get("full_program", "")
-if full_program:
-    # Collect syntax errors across all initial verifications to highlight lines
-    all_init_errors = " ".join(
-        v.get("clingo_errors", "") or ""
-        for v in record.get("train_verifications", [])
-    )
-    show_program(full_program, all_init_errors)
-else:
-    st.caption("(no program)")
+all_init_errors = " ".join(
+    v.get("clingo_errors", "") or ""
+    for v in record.get("train_verifications", [])
+)
+show_program_with_facts_toggle(full_program, examples, all_init_errors, f"p{puzzle_idx}_assembled")
 
 # ---------------------------------------------------------------------------
 # Training verification results

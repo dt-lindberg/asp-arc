@@ -71,9 +71,14 @@ def format_test_for_prompt(test_cases):
 # ---------------------------------------------------------------------------
 
 def grid_to_input_facts(grid):
-    """Convert a 2D grid to ASP input(Row, Col, Color) facts."""
-    facts = [f"input({r},{c},{color})." for r, row in enumerate(grid) for c, color in enumerate(row)]
-    return "\n".join(facts)
+    """Convert a 2D grid to ASP input(Row, Col, Color) facts.
+
+    Also injects color(0..9) facts, which the prompt guarantees the harness
+    provides so the LLM should not define them itself.
+    """
+    color_facts = " ".join(f"color({c})." for c in range(10))
+    input_facts = [f"input({r},{c},{color})." for r, row in enumerate(grid) for c, color in enumerate(row)]
+    return color_facts + "\n" + "\n".join(input_facts)
 
 
 # ---------------------------------------------------------------------------
