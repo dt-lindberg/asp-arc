@@ -342,6 +342,128 @@ def show_steps(steps, puzzle_idx):
 
 
 # ---------------------------------------------------------------------------
+# Syntax agent display
+# ---------------------------------------------------------------------------
+
+
+def _count_clingo_errors(error_str):
+    """Count distinct Clingo parse errors by counting '<block>:N:' occurrences."""
+    if not error_str:
+        return 0
+    return len(re.findall(r"<block>:\d+:", error_str))
+
+
+def show_syntax_agent(syntax_agent, examples, puzzle_idx):
+    """
+    Render the syntax-agent section between Assembled Program and Training Verification.
+
+    * Only renders when syntax_agent is present and triggered=True.
+    * Shows a status badge, error-count progression, per-round expanders,
+      and a final post-fix program view with error highlighting.
+    """
+    if not syntax_agent or not syntax_agent.get("triggered"):
+        return
+
+    steps = syntax_agent.get("steps", [])
+    initial_error = syntax_agent.get("initial_error", "")
+    syntax_fixed = syntax_agent.get("syntax_fixed", False)
+
+    n_initial = _count_clingo_errors(initial_error)
+    last_error = steps[-1].get("syntax_error_after", "") if steps else ""
+    n_final = _count_clingo_errors(last_error)
+
+    # Status badge and summary line
+    if syntax_fixed:
+        badge_color, badge_text = "#2ECC40", "FIXED"
+    elif steps:
+        badge_color, badge_text = "#FFDC00", "PARTIAL FIX"
+    else:
+        badge_color, badge_text = "#AAAAAA", "NO PROGRESS"
+
+    st.subheader("Syntax Agent")
+    st.html(
+        f'<span style="background:{badge_color};color:#111;border-radius:3px;'
+        f'padding:2px 8px;font-size:12px;font-weight:600">{badge_text}</span>'
+        f' <span style="font-size:12px;color:#aaa">'
+        f'{n_initial} errors → {n_final} errors &nbsp;·&nbsp; {len(steps)} rounds'
+        f"</span>"
+    )
+
+    # Initial error block
+    if initial_error:
+        with st.expander("Initial parse errors", expanded=False):
+            st.code(initial_error, language=None)
+
+    # Per-round expanders
+    for step in steps:
+        round_num = step.get("round", "?")
+        tool_call = step.get("tool_call", {})
+        tool_name = tool_call.get("name", "unknown")
+        error_after = step.get("syntax_error_after", "")
+        n_after = _count_clingo_errors(error_after)
+
+        round_label = (
+            f"Round {round_num} \u2014 {tool_name}"
+            f" \u00b7 {n_after} error{'s' if n_after != 1 else ''} remaining"
+        )
+
+        with st.expander(round_label, expanded=False):
+            thinking = step.get("thinking", "")
+            if thinking and thinking.strip():
+                st.markdown("**Thinking**")
+                st.text_area(
+                    "thinking",
+                    value=thinking,
+                    height=140,
+                    disabled=True,
+                    label_visibility="collapsed",
+                    key=f"p{puzzle_idx}_syn_thinking_{round_num}",
+                )
+
+            # Tool-specific display
+            params = tool_call.get("params", {})
+            if tool_name == "edit_code":
+                old_str = params.get("old_str", "")
+                new_str = params.get("new_str", "")
+                if old_str or new_str:
+                    st.markdown("**Patch**")
+                    col_old, col_new = st.columns(2, gap="small")
+                    with col_old:
+                        st.caption("old_str (removed)")
+                        st.code(old_str or "(empty)", language="prolog")
+                    with col_new:
+                        st.caption("new_str (inserted)")
+                        st.code(new_str or "(empty)", language="prolog")
+            elif tool_name == "run_clingo":
+                test_code = params.get("code", "")
+                if test_code:
+                    st.markdown("**Test snippet**")
+                    st.code(test_code, language="prolog")
+
+            # Tool result (Clingo output)
+            tool_result = step.get("tool_result", "")
+            if tool_result:
+                st.markdown("**Result**")
+                # Strip the verbose program echo that edit_code appends after "Current program:"
+                display_result = re.split(r"\nCurrent program:", tool_result)[0].strip()
+                st.code(display_result, language=None)
+
+            if error_after:
+                st.markdown("**Remaining errors**")
+                st.code(error_after, language=None)
+
+    # Post-fix program — show once, with error highlighting on any residual errors
+    if steps:
+        final_program = steps[-1].get("program_after", "")
+        if final_program:
+            with st.expander("Post-fix program (input to refinement loop)", expanded=False):
+                show_program_with_facts(
+                    final_program, examples, last_error,
+                    f"p{puzzle_idx}_syntax_final",
+                )
+
+
+# ---------------------------------------------------------------------------
 # Refinement display
 # ---------------------------------------------------------------------------
 
@@ -440,7 +562,11 @@ with st.sidebar:
 
     def _puzzle_label(r):
         status = "SOLVED" if r.get("final_correct") else "UNSOLVED"
-        return f"{r['puzzle_id']} — {status}"
+        sa = r.get("syntax_agent", {})
+        sa_tag = ""
+        if sa.get("triggered"):
+            sa_tag = " [SA✓]" if sa.get("syntax_fixed") else " [SA]"
+        return f"{r['puzzle_id']} — {status}{sa_tag}"
 
     puzzle_idx = st.radio(
         "Select",
@@ -509,6 +635,12 @@ all_init_errors = " ".join(
     for v in record.get("train_verifications", [])
 )
 show_program_with_facts(full_program, examples, all_init_errors, f"p{puzzle_idx}_assembled")
+
+# ---------------------------------------------------------------------------
+# Syntax agent (runs after assembly, before verification)
+# ---------------------------------------------------------------------------
+
+show_syntax_agent(record.get("syntax_agent"), examples, puzzle_idx)
 
 # ---------------------------------------------------------------------------
 # Training verification results

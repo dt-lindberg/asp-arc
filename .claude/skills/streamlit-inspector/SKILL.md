@@ -34,6 +34,7 @@ For each puzzle record in a run JSON:
 | Training examples | Colour-coded input → output grid pairs (ARC standard palette) |
 | Step-by-step analysis | Collapsible expanders for each of the 4 steps (analysis, predicates, choice_rules, constraints); thinking shown when non-empty |
 | Assembled program | Full ASP program with error-line highlighting (lines referenced in Clingo errors get a red background + ⚠ marker) |
+| Syntax agent | Only shown when `syntax_agent.triggered=True`. Status badge (FIXED / PARTIAL FIX), error-count progression (e.g. "6 errors → 2 errors · 6 rounds"), initial error block, per-round expanders (thinking, patch old→new or test snippet, tool result, remaining errors), and a final post-fix program view with error highlighting. Sidebar label gets `[SA]` or `[SA✓]` tag. |
 | Training verification | Per-example PASS/FAIL badges; input / expected / predicted grids side by side; diff string and Clingo errors below; if all examples share the same syntax error it is shown once |
 | Refinement attempts | Collapsible per-attempt view with same structure as initial verification |
 
@@ -75,4 +76,13 @@ record["train_verifications"][i]["grid_expected"]
 record["refinements"][k]["program"]          # program from refinement attempt k+1
 record["refinements"][k]["train_verifications"]
 record["final_correct"]                      # True if all train examples solved
+record["syntax_agent"]["triggered"]          # bool — False means agent did not run
+record["syntax_agent"]["initial_error"]      # Clingo error string before agent
+record["syntax_agent"]["syntax_fixed"]       # True if all errors cleared
+record["syntax_agent"]["steps"][k]["round"]          # 1-indexed round number
+record["syntax_agent"]["steps"][k]["thinking"]       # LLM thinking text
+record["syntax_agent"]["steps"][k]["tool_call"]      # {"name": ..., "params": {...}}
+record["syntax_agent"]["steps"][k]["tool_result"]    # Clingo or patch output string
+record["syntax_agent"]["steps"][k]["program_after"]  # program state after this round
+record["syntax_agent"]["steps"][k]["syntax_error_after"]  # remaining errors
 ```
