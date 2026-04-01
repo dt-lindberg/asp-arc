@@ -258,18 +258,13 @@ def show_program(code, errors_str=""):
 # ---------------------------------------------------------------------------
 
 
-def show_program_with_facts_toggle(program, examples, errors_str, state_key_prefix):
-    """Show program with a toggle to prepend injected facts for a chosen example."""
+def show_program_with_facts(program, examples, errors_str, state_key_prefix):
+    """Show program with injected facts appended for a chosen example."""
     if not program:
         st.caption("(no program)")
         return
 
-    show_facts = st.checkbox(
-        "Show with injected facts",
-        key=f"{state_key_prefix}_show_facts",
-    )
-
-    if show_facts and examples:
+    if examples:
         ex_labels = [f"Example {i + 1}" for i in range(len(examples))]
         chosen = st.selectbox(
             "Inject facts for",
@@ -278,7 +273,7 @@ def show_program_with_facts_toggle(program, examples, errors_str, state_key_pref
             key=f"{state_key_prefix}_ex_select",
         )
         injected = grid_to_input_facts(examples[chosen]["input"])
-        display_program = injected + "\n\n" + program
+        display_program = program + "\n\n" + injected
     else:
         display_program = program
 
@@ -379,7 +374,7 @@ def show_refinements(refinements, examples, puzzle_idx):
             )
             if program:
                 st.markdown("**Program**")
-                show_program_with_facts_toggle(
+                show_program_with_facts(
                     program, examples, all_errors,
                     f"p{puzzle_idx}_ref_{attempt}",
                 )
@@ -509,7 +504,7 @@ all_init_errors = " ".join(
     v.get("clingo_errors", "") or ""
     for v in record.get("train_verifications", [])
 )
-show_program_with_facts_toggle(full_program, examples, all_init_errors, f"p{puzzle_idx}_assembled")
+show_program_with_facts(full_program, examples, all_init_errors, f"p{puzzle_idx}_assembled")
 
 # ---------------------------------------------------------------------------
 # Training verification results

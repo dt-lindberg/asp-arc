@@ -7,6 +7,7 @@ import re
 # Code extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_code_blocks(response):
     """Extract content from triple-tick code blocks (```asp, ```prolog, etc.).
 
@@ -37,6 +38,7 @@ def extract_code_blocks(response):
 # ---------------------------------------------------------------------------
 # Grid formatting
 # ---------------------------------------------------------------------------
+
 
 def format_grid(grid):
     """Format a 2D list as space-separated digit rows."""
@@ -70,6 +72,7 @@ def format_test_for_prompt(test_cases):
 # ASP fact generation
 # ---------------------------------------------------------------------------
 
+
 def grid_to_input_facts(grid):
     """Convert a 2D grid to ASP input(Row, Col, Color) facts.
 
@@ -77,13 +80,18 @@ def grid_to_input_facts(grid):
     provides so the LLM should not define them itself.
     """
     color_facts = " ".join(f"color({c})." for c in range(10))
-    input_facts = [f"input({r},{c},{color})." for r, row in enumerate(grid) for c, color in enumerate(row)]
-    return color_facts + "\n" + "\n".join(input_facts)
+    input_facts = [
+        f"input({r},{c},{color})."
+        for r, row in enumerate(grid)
+        for c, color in enumerate(row)
+    ]
+    return color_facts + "\n" + " ".join(input_facts)
 
 
 # ---------------------------------------------------------------------------
 # Answer-set → grid reconstruction
 # ---------------------------------------------------------------------------
+
 
 def answer_set_to_grid(atoms, n_rows, n_cols):
     """Reconstruct a grid from output(Row, Col, Color) atoms.
@@ -104,6 +112,7 @@ def answer_set_to_grid(atoms, n_rows, n_cols):
 # ---------------------------------------------------------------------------
 # Grid diff
 # ---------------------------------------------------------------------------
+
 
 def grid_diff(predicted, expected):
     """Compare two grids and produce a visual diff.
