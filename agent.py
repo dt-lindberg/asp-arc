@@ -10,13 +10,30 @@ Tool responses are injected back as user messages with <tool_response> tags,
 following the Nemotron tool-use protocol (docs/nemotron_tool_usage.md).
 """
 
+import os
 import re
 
+from config import SYNTAX_GUIDE_PATH
 from eval import _check_syntax, _annotate_clingo_error
 from logger import get_logger
 from tools import edit_code as _edit_code
 from tools import run_clingo as _run_clingo
 from utils import extract_code_blocks
+
+
+def _load_syntax_guide():
+    """Load the ASP syntax guide, stripping YAML frontmatter."""
+    if not os.path.isfile(SYNTAX_GUIDE_PATH):
+        return ""
+    with open(SYNTAX_GUIDE_PATH, encoding="utf-8") as f:
+        raw = f.read()
+    if raw.startswith("---"):
+        end = raw.find("---", 3)
+        return raw[end + 3:].strip() if end != -1 else raw
+    return raw.strip()
+
+
+_SYNTAX_GUIDE = _load_syntax_guide()
 
 logger = get_logger("agent")
 
@@ -123,7 +140,8 @@ def quick_syntax_fix(program):
 
 _REWRITE_SYSTEM = (
     "You are a Clingo/ASP syntax expert. "
-    "Fix ONLY syntax errors — never change program logic or semantics."
+    "Fix ONLY syntax errors — never change program logic or semantics.\n\n"
+    + _SYNTAX_GUIDE
 )
 
 _REWRITE_GUIDE = """\

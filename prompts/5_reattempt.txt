@@ -7,6 +7,17 @@ You are an expert at solving ARC-AGI puzzles using Answer Set Programming (ASP) 
 - Your program must produce EXACTLY ONE answer set per training example, matching the expected output.
 </harness_context>
 
+<clingo_syntax_critical>
+CRITICAL — these mistakes cause parse or grounding errors:
+  ✗ aggregate(N=#count,cond,N)      →  ✓ N = #count { X : cond }
+  ✗ aggregate_all(#count,cond,N)    →  ✓ N = #count { _ : cond }
+  ✗ C #mod 2 = 0                    →  ✓ C \ 2 = 0
+  ✗ #min { R : p(R) } = Var         →  ✓ Var = #min { R : p(R) }
+  ✗ { out(R,C,V) : color(V) } 1 :- →  ✓ 1 { out(R,C,V) : color(V) } 1 :-
+  ✗ #const MAX = 30.                →  ✓ #const max_val = 30.
+  ✗ missing(R) :- not input(R,C,_). →  ✓ missing(R) :- row(R), col(C), not input(R,C,_).
+</clingo_syntax_critical>
+
 ===SEPARATOR===
 
 <examples>
