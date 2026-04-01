@@ -76,6 +76,43 @@ def quick_syntax_fix(program):
         n_fixes += count
         logger.info(f"  [quick_fix] Fixed {count} inverted aggregate(s) (#aggr{{}} = Var → Var = #aggr{{}})")
 
+    # Fix 5: #aggr(...) → #aggr{...}  (parentheses instead of curly braces in aggregates)
+    # Handles one level of nested parentheses (e.g., #count(X : pred(Y)))
+    fixed, count = re.subn(
+        r'(#(?:count|sum|min|max))\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)',
+        r'\1 { \2 }',
+        result,
+    )
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} aggregate(s) using () instead of {{}}")
+
+    # Fix 6: aggregate(Var = #aggr, Condition, Var) → Var = #aggr { _ : Condition }
+    # SWI-Prolog aggregate/3 → Clingo aggregate syntax
+    fixed, count = re.subn(
+        r'aggregate\s*\(\s*([A-Z]\w*)\s*=\s*(#(?:count|sum|min|max))\s*,\s*(.+?)\s*,\s*\1\s*\)',
+        r'\1 = \2 { _ : \3 }',
+        result,
+        flags=re.DOTALL,
+    )
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} aggregate/3 call(s) (SWI-Prolog → Clingo)")
+
+    # Fix 7: aggregate_all(#aggr, Condition, Var) → Var = #aggr { _ : Condition }
+    fixed, count = re.subn(
+        r'aggregate_all\s*\(\s*(#(?:count|sum|min|max))\s*,\s*(.+?)\s*,\s*([A-Z]\w*)\s*\)',
+        r'\3 = \1 { _ : \2 }',
+        result,
+        flags=re.DOTALL,
+    )
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} aggregate_all/3 call(s) (SWI-Prolog → Clingo)")
+
     return result, n_fixes
 
 
@@ -152,6 +189,9 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
     ]
 
     steps = []
+    prev_error_count = syntax_error.count("\n") + 1  # approximate error count from initial string
+    stall_rounds = 0
+    STALL_LIMIT = 4  # exit if no progress for this many consecutive rounds
 
     for attempt in range(1, max_attempts + 1):
         logger.info(f"  [syntax agent] round {attempt}/{max_attempts}")
@@ -235,10 +275,36 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
         # Check syntax of the (possibly updated) current program
         syntax_err_now = _check_syntax(current_program, pipeline)
 
+        # Track progress: count approximate error lines to detect stalls
+        if syntax_err_now is not None:
+            curr_error_count = syntax_err_now.count("\n") + 1
+            if curr_error_count >= prev_error_count:
+                stall_rounds += 1
+                logger.info(
+                    f"  [syntax agent] no progress ({curr_error_count} error lines, "
+                    f"stall {stall_rounds}/{STALL_LIMIT})"
+                )
+            else:
+                stall_rounds = 0  # reset stall counter on any progress
+                logger.info(
+                    f"  [syntax agent] progress: {prev_error_count} → {curr_error_count} error lines"
+                )
+            prev_error_count = curr_error_count
+
         step["tool_result"] = result_str
         step["program_after"] = current_program
         step["syntax_error_after"] = syntax_err_now
         steps.append(step)
+
+        if syntax_err_now is None:
+            logger.info("  [syntax agent] syntax clean — exiting loop early")
+            break
+
+        if stall_rounds >= STALL_LIMIT:
+            logger.info(
+                f"  [syntax agent] stuck for {STALL_LIMIT} rounds — giving up early"
+            )
+            break
 
         # Build tool response; append a status note if errors remain and rounds are left
         tool_response_content = result_str
@@ -252,9 +318,5 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
             "role": "user",
             "content": f"<tool_response>\n{tool_response_content}\n</tool_response>",
         })
-
-        if syntax_err_now is None:
-            logger.info("  [syntax agent] syntax clean — exiting loop early")
-            break
 
     return current_program, steps
