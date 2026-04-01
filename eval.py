@@ -107,15 +107,20 @@ def verify_on_training_examples(program, train_examples, pipeline):
 
         elif len(answer_sets_or_errors) != 1:
             n = len(answer_sets_or_errors)
+            # Extract first answer set to give the model a concrete example to work with
+            first_atoms = answer_sets_or_errors[0]
+            first_predicted = answer_set_to_grid(first_atoms, n_rows, n_cols)
+            diff_str, accuracy = grid_diff(first_predicted, expected)
             result.update(
                 status="underconstrained",
                 n_answer_sets=n,
                 clingo_errors=f"{n} answer sets found (expected exactly 1)",
                 correct=False,
-                diff=None,
-                accuracy=0.0,
-                grid_predicted=None,
+                diff=diff_str,
+                accuracy=round(accuracy, 4),
+                grid_predicted=first_predicted,
                 grid_expected=expected,
+                answer_set=first_atoms,
             )
             logger.debug(f"  Example {i}: {n} answer sets (underconstrained)")
 
@@ -145,11 +150,58 @@ def verify_on_training_examples(program, train_examples, pipeline):
     return results
 
 
+def _annotate_clingo_error(error_str):
+    """Append human-readable hints to cryptic Clingo error messages."""
+    hints = []
+    low = error_str.lower()
+    if "unexpected =" in low and any(a in low for a in ("#count", "#sum", "#min", "#max")):
+        hints.append(
+            "Hint: Aggregate on the right-hand side: `Var = #aggr{...}`, not `#aggr{...} = Var`"
+        )
+    if "aggregate(" in low:
+        hints.append(
+            "Hint: `aggregate(...)` is SWI-Prolog — use `N = #count { X : pred(X) }` instead"
+        )
+    if "#mod" in low:
+        hints.append("Hint: Use `\\` for modulo (not `#mod`). Example: `C \\ 2 = 0`")
+    if "exactly" in low and "unexpected" in low:
+        hints.append("Hint: Use `1 { ... } 1` instead of `{ ... } exactly 1`")
+    if "unsafe variable" in low:
+        hints.append(
+            "Hint: Every variable must appear in at least one positive literal. "
+            "Add a positive binding before using the variable under `not`."
+        )
+    if "unexpected <variable>" in low and "#const" in low:
+        hints.append("Hint: `#const` names must be lowercase identifiers")
+    return error_str + ("\n" + "\n".join(hints) if hints else "")
+
+
 def build_train_feedback(train_results):
     """Build a human-readable feedback string from training verification results.
 
     Used as <FEEDBACK> in the reattempt prompt.
+    Deduplicates repeated syntax errors (all examples share the same parse error).
     """
+    # Deduplicate clingo_error across examples (same error shown once)
+    all_clingo_errors = [
+        r["clingo_errors"]
+        for r in train_results
+        if r["status"] == "clingo_error" and not r["correct"]
+    ]
+    shared_error = (
+        all_clingo_errors[0]
+        if all_clingo_errors and len(set(all_clingo_errors)) == 1 and len(all_clingo_errors) > 1
+        else None
+    )
+
+    if shared_error is not None:
+        annotated = _annotate_clingo_error(shared_error)
+        n_examples = len(train_results)
+        return (
+            f"All {n_examples} examples fail with the same Clingo syntax error:\n"
+            f"{annotated}"
+        )
+
     parts = []
     for res in train_results:
         i = res["example_idx"]
@@ -162,15 +214,21 @@ def build_train_feedback(train_results):
         lines = [f"Example #{i + 1}: INCORRECT"]
 
         if status == "clingo_error":
-            lines.append(f"  Clingo error:\n{res['clingo_errors']}")
+            annotated = _annotate_clingo_error(res["clingo_errors"])
+            lines.append(f"  Clingo error:\n{annotated}")
 
         elif status == "unsatisfiable":
             lines.append("  Program is UNSATISFIABLE — 0 answer sets produced.")
 
         elif status == "underconstrained":
             n = res["n_answer_sets"]
+            diff = res.get("diff")
+            acc = res.get("accuracy", 0.0)
             lines.append(
-                f"  Program is UNDERCONSTRAINED — {n} answer sets produced (need exactly 1)."
+                f"  Program is UNDERCONSTRAINED — {n} answer sets produced (need exactly 1).\n"
+                f"  You need more :- constraints to uniquely determine the output.\n"
+                f"  One example answer set (first of {n}, accuracy {acc:.2f} vs expected):\n"
+                + (diff if diff else "  (no diff available)")
             )
 
         elif status in ("wrong_values", "shape_mismatch"):

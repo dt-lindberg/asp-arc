@@ -1,12 +1,11 @@
-You are an expert at solving ARC-AGI (Abstraction and Reasoning Corpus) puzzles using Answer Set Programming (ASP).
+You are an expert at solving ARC-AGI puzzles using Answer Set Programming (ASP) with Clingo.
 
-<context>
+<harness_context>
 - input(Row, Col, Color) facts are prepended automatically — do NOT generate them.
-- color(0..9) is already hardcoded — do NOT generate color/1 facts.
-- The output predicate is always output(Row, Col, Color) — do NOT redefine it.
-</context>
-
-Your program must produce EXACTLY ONE answer set for each training example, and that answer set must match the expected output exactly.
+- color(0..9) is always provided — do NOT generate color/1 facts.
+- output(Row, Col, Color) is the output predicate — do NOT redefine it.
+- Your program must produce EXACTLY ONE answer set per training example, matching the expected output.
+</harness_context>
 
 ===SEPARATOR===
 
@@ -17,6 +16,30 @@ Your program must produce EXACTLY ONE answer set for each training example, and 
 Previous attempt(s) and feedback:
 <HISTORY>
 
-Analyse the feedback carefully and write a corrected ASP program. Focus on the logical rule — fix why the answer set is wrong, unsatisfiable, or underconstrained. If the feedback shows a Clingo syntax error, fix only that syntax issue while preserving all logic.
+Diagnose the root cause from the feedback and fix it:
 
-Do NOT include color/1 facts or input/3 facts. Output a single ```asp code block with the complete program.
+• CLINGO ERROR — Fix the specific syntax error. Common fixes:
+  - `aggregate(N=#count,pred(X),N)` → `N = #count { X : pred(X) }`
+  - `C #mod 2` → `C \ 2`
+  - `#min{...} = Var` → `Var = #min{...}`
+  - `{ } exactly 1` → `1 { } 1`
+  - Unsafe variable: add a positive binding before `not` (e.g., `row(R), col(C), not ...`)
+  - Predicate used as integer: extract with a helper fact first
+
+• UNSATISFIABLE (0 answer sets) — Constraints are too strong. Diagnose:
+  - Are all predicate names spelled correctly?
+  - Are dimensions computed correctly with 1 + #max?
+  - Which specific constraint kills the solution? Relax or remove it.
+
+• UNDERCONSTRAINED (multiple answer sets) — Need MORE constraints. Ask:
+  - What distinguishes the correct output from the alternatives?
+  - For each cell position: what rule uniquely determines its color?
+  - Add :- constraints that forbid the wrong colorings.
+  - Look at the diff showing one example answer set vs. expected — what rule fixes those wrong cells?
+
+• WRONG VALUES (1 answer set, wrong cells) — Logic is incorrect. Diagnose:
+  - Which cells are wrong in the diff?
+  - What should determine those cells' colors per the training examples?
+  - Revise the specific constraint(s) for those cells.
+
+Write a corrected, complete ASP program in one ```asp code block. Do NOT include color/1 or input/3 facts.

@@ -11,13 +11,72 @@ following the Nemotron tool-use protocol (docs/nemotron_tool_usage.md).
 
 import re
 
-from eval import _check_syntax
+from eval import _check_syntax, _annotate_clingo_error
 from logger import get_logger
 from tools import edit_code as _edit_code
 from tools import run_clingo as _run_clingo
 from utils import extract_code_blocks
 
 logger = get_logger("agent")
+
+
+def quick_syntax_fix(program):
+    """Apply deterministic regex fixes for the most common LLM-generated syntax errors.
+
+    These fixes are safe to apply without LLM reasoning:
+    1. C #mod N  →  C \\ N    (wrong modulo operator)
+    2. { ... } exactly N  →  N { ... } N  (wrong cardinality form)
+    3. #aggr{...} = Var  →  Var = #aggr{...}  (inverted aggregate, only safe for simple cases)
+
+    Returns:
+        (fixed_program, n_fixes)  where n_fixes counts applied substitutions.
+    """
+    n_fixes = 0
+    result = program
+
+    # Fix 1: C #mod N → C \\ N  (e.g., "C #mod 2" → "C \\ 2")
+    fixed, count = re.subn(r'(\b\w+)\s+#mod\s+(\w+)', r'\1 \\ \2', result)
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} '#mod' → '\\\\' replacement(s)")
+
+    # Fix 2: { ... } exactly N :- → N { ... } N :-
+    # Match: { ... } exactly <digit> :-
+    fixed, count = re.subn(
+        r'\{\s*(.*?)\s*\}\s+exactly\s+(\d+)\s*:-',
+        lambda m: f"{m.group(2)} {{ {m.group(1)} }} {m.group(2)} :-",
+        result,
+        flags=re.DOTALL,
+    )
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} 'exactly N' → 'N {{ }} N' replacement(s)")
+
+    # Fix 3: #const UPPERCASE = N → #const lowercase = N
+    fixed, count = re.subn(
+        r'#const\s+([A-Z][A-Z0-9_]*)\s*=',
+        lambda m: f'#const {m.group(1).lower()} =',
+        result,
+    )
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} uppercase #const name(s)")
+
+    # Fix 4: #aggr { ... } = Var → Var = #aggr { ... }  (inverted aggregate assignment)
+    fixed, count = re.subn(
+        r'(#(?:count|sum|min|max))\s*(\{[^}]+\})\s*=\s*([A-Z]\w*)',
+        r'\3 = \1 \2',
+        result,
+    )
+    if count:
+        result = fixed
+        n_fixes += count
+        logger.info(f"  [quick_fix] Fixed {count} inverted aggregate(s) (#aggr{{}} = Var → Var = #aggr{{}})")
+
+    return result, n_fixes
 
 
 def parse_tool_call(text):
@@ -78,6 +137,8 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
     """
     current_program = program
 
+    annotated_error = _annotate_clingo_error(syntax_error)
+
     messages = [
         {"role": "system", "content": system_prompt},
         {
@@ -85,7 +146,7 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
             "content": (
                 f"Fix the Clingo syntax errors in this ASP program.\n\n"
                 f"Program:\n```asp\n{current_program}\n```\n\n"
-                f"Clingo errors:\n{syntax_error}"
+                f"Clingo errors:\n{annotated_error}"
             ),
         },
     ]
