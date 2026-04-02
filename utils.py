@@ -11,26 +11,36 @@ import re
 def extract_code_blocks(response):
     """Extract content from triple-tick code blocks (```asp, ```prolog, etc.).
 
-    * Prefers ```asp or ```prolog blocks over generic/unlabelled ones, to avoid
-      picking up grid diagrams or other code fences embedded in reasoning text.
-    * Falls back to the first complete block of any type.
-    * Falls back to content after an unclosed opening fence.
-    * Returns the original response unchanged if no fences found.
+    * Prefers the LAST ```asp/prolog block (the final program answer).
+      When thinking traces are included in the response (no </think> tag),
+      the last code block is more likely to be the actual answer rather than
+      an intermediate example in the reasoning.
+    * Falls back to the last complete block of any kind.
+    * Falls back to content after the last opening fence (unclosed block).
+    * Returns "" if no fences found.
     """
-    # First: look for a labelled asp/prolog block
-    match = re.search(r"```(?:asp|prolog)\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    # Prefer the last labelled asp/prolog block (LAST = final answer, not thinking)
+    matches = list(re.finditer(r"```(?:asp|prolog)\n(.*?)```", response, re.DOTALL))
+    if matches:
+        return matches[-1].group(1).strip()
 
-    # Second: first complete block of any kind
-    match = re.search(r"```[^\n]*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    # Fall back to last complete block of any kind
+    matches = list(re.finditer(r"```[^\n]*\n(.*?)```", response, re.DOTALL))
+    if matches:
+        return matches[-1].group(1).strip()
 
-    # Third: unclosed fence
-    match = re.search(r"```[^\n]*\n(.*)", response, re.DOTALL)
+    # Last unclosed fence (truncated output case)
+    match = re.search(r"```[^\n]*\n(.*)", response[::-1], re.DOTALL)
     if match:
-        return match.group(1).strip()
+        # This is a reverse search: find the last opening fence
+        last_fence = re.search(r"```[^\n]*\n(.*)", response, re.DOTALL)
+        if last_fence:
+            # Get the content after the last opening fence
+            pos = response.rfind("```")
+            rest = response[pos:]
+            m = re.match(r"```[^\n]*\n(.*)", rest, re.DOTALL)
+            if m:
+                return m.group(1).strip()
 
     return ""
 

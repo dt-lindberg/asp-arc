@@ -1,0 +1,41 @@
+[
+  {
+    "run_id": "20260401_221210",
+    "puzzle_id": "0d3d703e",
+    "dataset": "arc-v1-training",
+    "n_train_examples": 4,
+    "steps": {},
+    "full_program": "",
+    "train_verifications": [],
+    "all_train_correct": false,
+    "syntax_agent": null,
+    "refinements": [],
+    "final_correct": false
+  },
+  {
+    "run_id": "20260401_221210",
+    "puzzle_id": "0520fde7",
+    "dataset": "arc-v1-training",
+    "n_train_examples": 3,
+    "steps": {},
+    "full_program": "",
+    "train_verifications": [],
+    "all_train_correct": false,
+    "syntax_agent": null,
+    "refinements": [],
+    "final_correct": false
+  },
+  {
+    "run_id": "20260401_221210",
+    "puzzle_id": "1e0a9b12",
+    "dataset": "arc-v1-training",
+    "n_train_examples": 3,
+    "steps": {},
+    "full_program": "",
+    "train_verifications": [],
+    "all_train_correct": false,
+    "syntax_agent": null,
+    "refinements": [],
+    "final_correct": false
+  }
+]
