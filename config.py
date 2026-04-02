@@ -23,6 +23,9 @@ MAX_VARIABLE_ATOMS = 30
 MAX_SYNTAX_ATTEMPTS = 10
 SYNTAX_GUIDE_PATH = "docs/asp_syntax_guide.md"
 
+# MULTI-CANDIDATE GENERATION
+N_CANDIDATES = 6   # number of initial candidates generated per puzzle
+
 # PIPELINE
 DEFAULT_ENGINE = "nemotron-cascade-2"
 

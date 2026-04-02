@@ -1,6 +1,6 @@
 ---
 name: Test prediction not stored in results
-status: open
+status: closed
 ---
 
 # Test prediction not stored in results

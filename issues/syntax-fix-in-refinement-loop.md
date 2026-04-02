@@ -1,6 +1,6 @@
 ---
 name: Run syntax fix pipeline after each refinement attempt
-status: open
+status: closed
 ---
 
 # Run syntax fix pipeline after each refinement attempt

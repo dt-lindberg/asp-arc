@@ -1,6 +1,6 @@
 ---
 name: Multi-candidate generation with syntax patching and voting
-status: open
+status: closed
 ---
 
 # Multi-candidate generation with syntax patching and voting

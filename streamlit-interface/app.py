@@ -65,7 +65,7 @@ def _grid_html(grid, cell_px=26):
     )
 
 
-def show_example_navigator(puzzle_idx, train_examples, test_examples, train_verifications):
+def show_example_navigator(puzzle_idx, train_examples, test_examples, train_verifications, test_predictions=None):
     """Show one example at a time with prev/next navigation.
 
     Covers all training examples followed by test instances. For train examples,
@@ -85,12 +85,14 @@ def show_example_navigator(puzzle_idx, train_examples, test_examples, train_veri
             "correct": v.get("correct"),
         })
 
+    test_pred_by_idx = {p["test_idx"]: p for p in (test_predictions or [])}
     for i, ex in enumerate(test_examples):
+        tp = test_pred_by_idx.get(i, {})
         slides.append({
             "label": f"Test {i + 1}" + (" / " + str(len(test_examples)) if len(test_examples) > 1 else ""),
             "input": ex["input"],
             "expected": ex.get("output"),
-            "predicted": None,
+            "predicted": tp.get("grid_predicted"),
             "correct": None,
         })
 
@@ -468,6 +470,50 @@ def show_syntax_agent(syntax_agent, examples, puzzle_idx):
 # ---------------------------------------------------------------------------
 
 
+def show_candidates(candidates, puzzle_idx):
+    """Show multi-candidate generation summary table."""
+    if not candidates:
+        return
+    st.subheader("Candidate Programs")
+
+    # Summary table
+    rows = []
+    for c in candidates:
+        tag = " ← selected" if c.get("selected") else ""
+        rows.append({
+            "idx": c["idx"],
+            "strategy": c["strategy"] + tag,
+            "syntax_ok": "✓" if c.get("syntax_ok") else "✗",
+            "fix_stages": ", ".join(c.get("syntax_fix_stages", [])) or "—",
+            "n_correct": c.get("n_correct", 0),
+            "avg_accuracy": f"{c.get('avg_accuracy', 0):.2f}",
+            "solved": "✓" if c.get("is_solved") else "",
+        })
+
+    # Display as compact HTML table
+    header = ["#", "strategy", "syntax", "fixes", "n_correct", "accuracy", "solved"]
+    col_keys = ["idx", "strategy", "syntax_ok", "fix_stages", "n_correct", "avg_accuracy", "solved"]
+    th_style = "padding:4px 10px;text-align:left;border-bottom:1px solid #444;font-size:12px;color:#aaa"
+    td_style = "padding:3px 10px;font-size:12px;border-bottom:1px solid #222"
+
+    html_rows = []
+    for row in rows:
+        is_selected = "← selected" in row["strategy"]
+        row_bg = "background:rgba(46,204,64,0.08)" if is_selected else ""
+        tds = "".join(
+            f'<td style="{td_style}">{row[k]}</td>' for k in col_keys
+        )
+        html_rows.append(f'<tr style="{row_bg}">{tds}</tr>')
+
+    ths = "".join(f'<th style="{th_style}">{h}</th>' for h in header)
+    st.html(
+        '<table style="border-collapse:collapse;width:100%">'
+        f"<thead><tr>{ths}</tr></thead>"
+        f"<tbody>{''.join(html_rows)}</tbody>"
+        "</table>"
+    )
+
+
 def show_refinements(refinements, examples, puzzle_idx):
     """Render each refinement attempt as a collapsible expander."""
     if not refinements:
@@ -476,7 +522,15 @@ def show_refinements(refinements, examples, puzzle_idx):
     for ref in refinements:
         attempt = ref["attempt"]
         all_ok = ref.get("all_train_correct", False)
-        with st.expander(f"Attempt {attempt} — {'SOLVED' if all_ok else 'UNSOLVED'}", expanded=False):
+        syntax_fixes = ref.get("syntax_fixes", [])
+        fix_tag = ""
+        if syntax_fixes:
+            stages = "+".join(f["stage"] for f in syntax_fixes)
+            fix_tag = f" [fix:{stages}]"
+        with st.expander(
+            f"Attempt {attempt}{fix_tag} — {'SOLVED' if all_ok else 'UNSOLVED'}",
+            expanded=False,
+        ):
             thinking = ref.get("thinking", "")
             if thinking and thinking.strip():
                 st.markdown("**Thinking**")
@@ -615,6 +669,7 @@ show_example_navigator(
     examples,
     test_examples,
     record.get("train_verifications", []),
+    record.get("test_predictions", []),
 )
 
 # ---------------------------------------------------------------------------
@@ -639,6 +694,8 @@ show_program_with_facts(full_program, examples, all_init_errors, f"p{puzzle_idx}
 # ---------------------------------------------------------------------------
 # Syntax agent (runs after assembly, before verification)
 # ---------------------------------------------------------------------------
+
+show_candidates(record.get("candidates", []), puzzle_idx)
 
 show_syntax_agent(record.get("syntax_agent"), examples, puzzle_idx)
 
@@ -681,3 +738,32 @@ else:
 # ---------------------------------------------------------------------------
 
 show_refinements(record.get("refinements", []), examples, puzzle_idx)
+
+# ---------------------------------------------------------------------------
+# Test predictions
+# ---------------------------------------------------------------------------
+
+test_preds = record.get("test_predictions", [])
+if test_preds:
+    st.subheader("Test Predictions")
+    st.caption(
+        f"{sum(1 for p in test_preds if p['status'] == 'predicted')}/{len(test_preds)} "
+        "test input(s) successfully predicted"
+    )
+    for tp in test_preds:
+        tidx = tp["test_idx"]
+        status = tp["status"]
+        grid = tp.get("grid_predicted")
+        color = "#2ECC40" if status == "predicted" else "#FF4136"
+        st.html(
+            f'<span style="font-size:13px;font-weight:600">Test {tidx + 1}</span> '
+            f'<span style="background:{color};color:#111;border-radius:3px;'
+            f'padding:1px 7px;font-size:11px">{status.upper()}</span>'
+        )
+        if grid:
+            cols = st.columns([1, 3], gap="small")
+            with cols[0]:
+                st.caption("Predicted output")
+                st.html(_grid_html(grid))
+        elif tp.get("clingo_errors"):
+            st.code(tp["clingo_errors"], language=None)

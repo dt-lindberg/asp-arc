@@ -246,6 +246,87 @@ def build_train_feedback(train_results):
     return "\n\n".join(parts)
 
 
+def predict_on_test_examples(program, test_examples, pipeline):
+    """Run the final program on test inputs and return predicted grids.
+
+    Unlike verify_on_training_examples(), this function does not compare to an
+    expected output (test answers are hidden in ARC-AGI). It uses the test input
+    dimensions as bounding box for the predicted grid — output same size as input
+    is a common ARC-AGI pattern; any atoms outside those bounds are silently dropped.
+
+    Args:
+        program: ASP program string (without input facts).
+        test_examples: list of {"input": grid} dicts (output key may be absent).
+        pipeline: Pipeline instance with gen_answer_set().
+
+    Returns:
+        list of result dicts, one per test example:
+            {"test_idx": int, "status": str, "n_answer_sets": int,
+             "clingo_errors": str, "grid_predicted": list or None}
+    """
+    if not test_examples:
+        return []
+
+    results = []
+    for i, ex in enumerate(test_examples):
+        input_grid = ex["input"]
+        n_rows = len(input_grid)
+        n_cols = len(input_grid[0]) if input_grid else 0
+
+        input_facts = grid_to_input_facts(input_grid)
+        full_program = input_facts + "\n\n" + program
+
+        status, answer_sets_or_errors = pipeline.gen_answer_set(full_program)
+
+        result = {"test_idx": i}
+
+        if status is RuntimeError:
+            errors = "\n".join(str(x[1]).strip() for x in answer_sets_or_errors)
+            result.update(
+                status="clingo_error",
+                n_answer_sets=0,
+                clingo_errors=errors,
+                grid_predicted=None,
+            )
+            logger.debug(f"  Test example {i}: Clingo error — {errors[:120]}")
+
+        elif len(answer_sets_or_errors) == 0:
+            result.update(
+                status="unsatisfiable",
+                n_answer_sets=0,
+                clingo_errors="0 answer sets (unsatisfiable)",
+                grid_predicted=None,
+            )
+            logger.debug(f"  Test example {i}: unsatisfiable")
+
+        elif len(answer_sets_or_errors) != 1:
+            n = len(answer_sets_or_errors)
+            first_atoms = answer_sets_or_errors[0]
+            first_predicted = answer_set_to_grid(first_atoms, n_rows, n_cols)
+            result.update(
+                status="underconstrained",
+                n_answer_sets=n,
+                clingo_errors=f"{n} answer sets found (expected exactly 1)",
+                grid_predicted=first_predicted,
+            )
+            logger.debug(f"  Test example {i}: {n} answer sets (underconstrained)")
+
+        else:
+            atoms = answer_sets_or_errors[0]
+            predicted = answer_set_to_grid(atoms, n_rows, n_cols)
+            result.update(
+                status="predicted",
+                n_answer_sets=1,
+                clingo_errors="",
+                grid_predicted=predicted,
+            )
+            logger.debug(f"  Test example {i}: predicted ({n_rows}x{n_cols} grid)")
+
+        results.append(result)
+
+    return results
+
+
 def all_correct(train_results):
     """Return True if every training example was solved correctly."""
     return all(r["correct"] for r in train_results)
