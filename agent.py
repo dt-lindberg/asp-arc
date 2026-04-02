@@ -155,6 +155,7 @@ Common Clingo syntax fixes (apply immediately):
   #sum(...)                     →  #sum{...}
   #const UPPER = N.             →  #const upper = N.
   X = #max{...}.  (standalone)  →  max_val(X) :- X = #max{...}.
+  #count{A} = #count{B} (body)  →  N = #count{A}, N = #count{B}  (bind one side first)
 """
 
 

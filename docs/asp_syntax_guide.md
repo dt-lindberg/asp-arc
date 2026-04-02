@@ -35,6 +35,8 @@ description: Condensed reference of common Clingo syntax errors and correct alte
 
 15. **Head disjunction uses `;`** — `a ; b :- body.` means either a or b (or both) must hold. This is different from `1 { a ; b } 1 :- body.` which is a choice with exactly one.
 
+16. **No inline aggregate-to-aggregate comparison** — You cannot compare two aggregates directly in a rule body. Bind at least one to a variable first: `pivot(P) :- col(P), N = #count{R : row(R)}, N = #count{R : input(R,P,5)}.`, not `pivot(P) :- col(P), #count{R : input(R,P,5)} = #count{R : row(R)}.`. Alternatively, avoid the aggregate entirely with negation-as-failure: `bad(P) :- col(P), row(R), not input(R,P,5). pivot(P) :- col(P), not bad(P).`
+
 # Correct Pattern Reference
 
 ```asp
