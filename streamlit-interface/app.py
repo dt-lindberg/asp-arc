@@ -149,7 +149,7 @@ def show_example_navigator(puzzle_idx, train_examples, test_examples, train_veri
     # Pass/fail badge for train examples (idx is the slide index = train example index)
     if slide["correct"] is not None:
         if slide["correct"]:
-            st.success("Correct", icon="✓")
+            st.success("Correct", icon="✅")
         else:
             v = verif_by_idx.get(idx, {})
             status = v.get("status", "wrong").replace("_", " ").upper()
