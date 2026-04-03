@@ -32,7 +32,7 @@ def _split_thinking(text):
     end_idx = text.find("</think>")
     if end_idx != -1:
         thinking = text[:end_idx].strip()
-        response = text[end_idx + len("</think>"):].strip()
+        response = text[end_idx + len("</think>") :].strip()
         return thinking, response
 
     return "", text.strip()
@@ -71,7 +71,9 @@ class NemotronEngine:
         Returns:
             list of (thinking, response) tuples where thinking is "" when absent.
         """
-        logger.info(f"Generating batch of {len(messages_list)} prompts via llm.chat()...")
+        logger.info(
+            f"Generating batch of {len(messages_list)} prompts via llm.chat()..."
+        )
         t0 = time.perf_counter()
 
         outputs = self.llm.chat(

@@ -4,7 +4,12 @@ import json
 import os
 import random
 
-from config import ARC_V1_TRAINING, ARC_V1_EVALUATION, ARC_V2_TRAINING, ARC_V2_EVALUATION
+from config import (
+    ARC_V1_TRAINING,
+    ARC_V1_EVALUATION,
+    ARC_V2_TRAINING,
+    ARC_V2_EVALUATION,
+)
 from logger import get_logger
 
 logger = get_logger(__name__)

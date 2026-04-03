@@ -15,7 +15,13 @@ from dotenv import load_dotenv
 
 from arc_loader import get_puzzles, get_puzzles_by_ids
 from pipeline import Pipeline
-from eval import verify_on_training_examples, predict_on_test_examples, build_train_feedback, all_correct, _check_syntax as _check_syntax_fn
+from eval import (
+    verify_on_training_examples,
+    predict_on_test_examples,
+    build_train_feedback,
+    all_correct,
+    _check_syntax as _check_syntax_fn,
+)
 from utils import format_examples_for_prompt, extract_code_blocks
 from agent import run_syntax_agent, quick_syntax_fix, rewrite_syntax_fix
 from logger import setup_logging, get_logger
@@ -29,6 +35,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Reattempt prompt builder
 # ---------------------------------------------------------------------------
+
 
 def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, history):
     """Build the reattempt prompt for one puzzle.
@@ -53,7 +60,10 @@ def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, hist
                 f"History program for attempt {idx} is {len(program)} chars "
                 f"(likely an extraction failure) — truncating to {MAX_PROGRAM_IN_HISTORY} chars"
             )
-            program = program[:MAX_PROGRAM_IN_HISTORY] + "\n... [truncated — extraction likely failed]"
+            program = (
+                program[:MAX_PROGRAM_IN_HISTORY]
+                + "\n... [truncated — extraction likely failed]"
+            )
         history_parts.append(
             f"<attempt_{idx}>\n```asp\n{program}\n```\n\n"
             f"<feedback>\n{feedback}\n</feedback>\n</attempt_{idx}>"
@@ -70,6 +80,7 @@ def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, hist
 # ---------------------------------------------------------------------------
 # Per-puzzle result record
 # ---------------------------------------------------------------------------
+
 
 def _make_record(puzzle, run_id):
     return {
@@ -104,6 +115,7 @@ def _record_step(record, step_name, prompt, thinking, response, extracted):
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
+
 
 def main(args):
     run_id = time.strftime("%Y%m%d_%H%M%S")
@@ -148,47 +160,61 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     # apply the full syntax-fix pipeline to each, evaluate all on training
     # examples, then pick the best via structured ranking/voting.
     # ──────────────────────────────────────────────────────────────────────
-    logger.info(f"Multi-candidate generation ({N_CANDIDATES} candidates) for {n} puzzle(s)...")
+    logger.info(
+        f"Multi-candidate generation ({N_CANDIDATES} candidates) for {n} puzzle(s)..."
+    )
 
     # Strategy suffixes encourage diverse encodings from the same model.
     # Candidates beyond the defined strategies reuse "" (no hint, natural diversity
     # from temperature sampling alone).
     CAND_STRATEGIES = [
-        ("default",           ""),
-        ("choice+constraints",
-         "\n% Strategy hint: use Choice + Constraints "
-         "(1 { output(R,C,V) : color(V) } 1 :- output_cell(R,C).) "
-         "with :- constraints to eliminate wrong values."),
-        ("deterministic",
-         "\n% Strategy hint: write a fully deterministic program "
-         "— no choice rules. Derive output(R,C,V) directly from input facts "
-         "using only regular rules and constraints."),
-        ("column-by-column",
-         "\n% Strategy hint: compute the output column by column. "
-         "Define helper predicates that reason about each column independently "
-         "before assembling the full output grid."),
-        ("row-by-row",
-         "\n% Strategy hint: compute the output row by row. "
-         "Define helper predicates that reason about each row independently "
-         "before assembling the full output grid."),
-        ("pattern-explicit",
-         "\n% Strategy hint: first identify the transformation rule in a "
-         "comment, then encode it step-by-step. Name intermediate predicates "
-         "descriptively (e.g., border_cell, fill_target, connected_to)."),
+        ("default", ""),
+        (
+            "choice+constraints",
+            "\n% Strategy hint: use Choice + Constraints "
+            "(1 { output(R,C,V) : color(V) } 1 :- output_cell(R,C).) "
+            "with :- constraints to eliminate wrong values.",
+        ),
+        (
+            "deterministic",
+            "\n% Strategy hint: write a fully deterministic program "
+            "— no choice rules. Derive output(R,C,V) directly from input facts "
+            "using only regular rules and constraints.",
+        ),
+        (
+            "column-by-column",
+            "\n% Strategy hint: compute the output column by column. "
+            "Define helper predicates that reason about each column independently "
+            "before assembling the full output grid.",
+        ),
+        (
+            "row-by-row",
+            "\n% Strategy hint: compute the output row by row. "
+            "Define helper predicates that reason about each row independently "
+            "before assembling the full output grid.",
+        ),
+        (
+            "pattern-explicit",
+            "\n% Strategy hint: first identify the transformation rule in a "
+            "comment, then encode it step-by-step. Name intermediate predicates "
+            "descriptively (e.g., border_cell, fill_target, connected_to).",
+        ),
     ]
     # Extend to N_CANDIDATES with no-hint entries if table is shorter
     while len(CAND_STRATEGIES) < N_CANDIDATES:
         CAND_STRATEGIES.append(("default-extra", ""))
 
-    all_cand_programs = []   # all_cand_programs[cand][puzzle]
-    all_cand_results = []    # all_cand_results[cand][puzzle] = (thinking, response)
+    all_cand_programs = []  # all_cand_programs[cand][puzzle]
+    all_cand_results = []  # all_cand_results[cand][puzzle] = (thinking, response)
 
     for cand_idx in range(N_CANDIDATES):
         strategy_name, suffix = CAND_STRATEGIES[cand_idx]
         cand_replaces = [{"<EXAMPLES>": fe + suffix} for fe in formatted_examples]
         cand_gen_results = pipeline.gen_response_batch("single_step", cand_replaces)
         all_cand_results.append(cand_gen_results)
-        all_cand_programs.append([extract_code_blocks(resp) for _, resp in cand_gen_results])
+        all_cand_programs.append(
+            [extract_code_blocks(resp) for _, resp in cand_gen_results]
+        )
         logger.info(
             f"  Candidate {cand_idx} ({strategy_name}) generated for all {n} puzzles"
         )
@@ -197,10 +223,12 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     # Apply quick_fix + rewrite to each candidate independently before ranking.
     # This prevents syntax-fixable candidates from being penalised vs. candidates
     # that happen to avoid the error by chance.
-    engine = pipeline._get_engine()  # load once; reused by syntax fixes and later stages
+    engine = (
+        pipeline._get_engine()
+    )  # load once; reused by syntax fixes and later stages
 
     programs = []
-    best_gen_results = []   # (thinking, response) for the selected candidate
+    best_gen_results = []  # (thinking, response) for the selected candidate
     for i in range(n):
         puzzle_id = puzzles[i]["id"]
         candidate_records = []  # for result schema
@@ -251,29 +279,39 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
                     )
 
             # Evaluate on training examples
-            cand_results = verify_on_training_examples(prog, puzzles[i]["train"], pipeline)
+            cand_results = verify_on_training_examples(
+                prog, puzzles[i]["train"], pipeline
+            )
             n_correct = sum(r["correct"] for r in cand_results)
-            avg_acc = sum(r["accuracy"] for r in cand_results) / max(len(cand_results), 1)
+            avg_acc = sum(r["accuracy"] for r in cand_results) / max(
+                len(cand_results), 1
+            )
             has_syntax = any(r["status"] == "clingo_error" for r in cand_results)
             is_solved = all_correct(cand_results)
 
-            candidate_records.append({
-                "idx": cand_idx,
-                "strategy": strategy_name,
-                "syntax_ok": not syntax_broken and not has_syntax,
-                "syntax_fix_stages": fix_stages,
-                "n_correct": n_correct,
-                "avg_accuracy": round(avg_acc, 4),
-                "is_solved": is_solved,
-                "selected": False,
-            })
+            candidate_records.append(
+                {
+                    "idx": cand_idx,
+                    "strategy": strategy_name,
+                    "syntax_ok": not syntax_broken and not has_syntax,
+                    "syntax_fix_stages": fix_stages,
+                    "n_correct": n_correct,
+                    "avg_accuracy": round(avg_acc, 4),
+                    "is_solved": is_solved,
+                    "selected": False,
+                }
+            )
 
             # Ranking: solved > no-syntax > highest accuracy
             is_better = (
                 (is_solved and not best_is_solved)
                 or (not has_syntax and best_has_syntax_error and not best_is_solved)
-                or (not has_syntax and not best_has_syntax_error
-                    and not best_is_solved and avg_acc > best_accuracy)
+                or (
+                    not has_syntax
+                    and not best_has_syntax_error
+                    and not best_is_solved
+                    and avg_acc > best_accuracy
+                )
                 or (has_syntax and best_has_syntax_error and n_correct > best_n_correct)
             )
             if is_better:
@@ -303,8 +341,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             "<EXAMPLES>", formatted_examples[i]
         )
         _record_step(
-            records[i], "generation",
-            prompt_used, best_gen[0], best_gen[1], best_prog
+            records[i], "generation", prompt_used, best_gen[0], best_gen[1], best_prog
         )
         logger.info(
             f"  [{puzzle_id}] selected best candidate "
@@ -321,7 +358,9 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     logger.info("Final verification of best candidate programs...")
     train_results_list = []
     for i, (puzzle, program) in enumerate(zip(puzzles, programs)):
-        logger.info(f"  [{puzzle['id']}] running Clingo on {len(puzzle['train'])} example(s)...")
+        logger.info(
+            f"  [{puzzle['id']}] running Clingo on {len(puzzle['train'])} example(s)..."
+        )
         t0 = time.time()
         train_results = verify_on_training_examples(program, puzzle["train"], pipeline)
         elapsed = round(time.time() - t0, 2)
@@ -364,9 +403,14 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             logger.info(f"  [{puzzles[i]['id']}] quick_fix applied {n_quick} fix(es)")
             quick_err = _check_syntax_fn(quick_fixed, pipeline)
             if quick_err is None:
-                logger.info(f"  [{puzzles[i]['id']}] quick_fix resolved all syntax errors!")
+                logger.info(
+                    f"  [{puzzles[i]['id']}] quick_fix resolved all syntax errors!"
+                )
                 programs[i] = quick_fixed
-                records[i]["syntax_agent"] = {"triggered": False, "quick_fix_applied": n_quick}
+                records[i]["syntax_agent"] = {
+                    "triggered": False,
+                    "quick_fix_applied": n_quick,
+                }
                 new_train_results = verify_on_training_examples(
                     quick_fixed, puzzles[i]["train"], pipeline
                 )
@@ -377,7 +421,9 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             # Quick fix helped but didn't fully resolve — continue with fixed version
             programs[i] = quick_fixed
             syntax_error = quick_err
-            logger.info(f"  [{puzzles[i]['id']}] quick_fix partial, remaining: {syntax_error[:120]}")
+            logger.info(
+                f"  [{puzzles[i]['id']}] quick_fix partial, remaining: {syntax_error[:120]}"
+            )
 
         # Stage 2: single-shot LLM rewrite (faster than multi-turn agent)
         logger.info(
@@ -399,9 +445,15 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
 
         if rewrite_err is None:
             # Rewrite resolved all syntax errors
-            logger.info(f"  [{puzzles[i]['id']}] rewrite fixed syntax in {n_rewrite_rounds} round(s)!")
+            logger.info(
+                f"  [{puzzles[i]['id']}] rewrite fixed syntax in {n_rewrite_rounds} round(s)!"
+            )
             programs[i] = rewritten
-            records[i]["syntax_agent"] = {**syntax_agent_record, "syntax_fixed": True, "steps": []}
+            records[i]["syntax_agent"] = {
+                **syntax_agent_record,
+                "syntax_fixed": True,
+                "steps": [],
+            }
             new_train_results = verify_on_training_examples(
                 rewritten, puzzles[i]["train"], pipeline
             )
@@ -480,7 +532,9 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     for attempt in range(1, MAX_ATTEMPTS + 1):
         active = [i for i in range(n) if not records[i]["all_train_correct"]]
         if not active:
-            logger.info(f"All puzzles solved — stopping after {attempt - 1} refinement(s)")
+            logger.info(
+                f"All puzzles solved — stopping after {attempt - 1} refinement(s)"
+            )
             break
 
         logger.info(
@@ -603,7 +657,9 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             continue
 
         final_prog = programs[i]
-        logger.info(f"  [{puzzle['id']}] verifying on {len(test_cases)} test case(s)...")
+        logger.info(
+            f"  [{puzzle['id']}] verifying on {len(test_cases)} test case(s)..."
+        )
         test_results = verify_on_training_examples(final_prog, test_cases, pipeline)
         n_test_correct = sum(r["correct"] for r in test_results)
         records[i]["test_verifications"] = test_results
@@ -624,7 +680,9 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         status = "SOLVED" if r["final_correct"] else "UNSOLVED"
         test_status = "TEST-PASS" if r["test_correct"] else "TEST-FAIL"
         n_ref = len(r["refinements"])
-        logger.info(f"  {r['puzzle_id']}: {status} {test_status} ({n_ref} refinement(s))")
+        logger.info(
+            f"  {r['puzzle_id']}: {status} {test_status} ({n_ref} refinement(s))"
+        )
 
     return records
 
@@ -640,7 +698,9 @@ def _save_results(records, run_id):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ARC-ASP pipeline")
-    parser.add_argument("--dataset", default="arc-v1-training", help="Dataset to sample from")
+    parser.add_argument(
+        "--dataset", default="arc-v1-training", help="Dataset to sample from"
+    )
     parser.add_argument("--num", default=3, type=int, help="Number of puzzles to run")
     parser.add_argument(
         "--puzzle_ids",
@@ -648,6 +708,8 @@ if __name__ == "__main__":
         default=None,
         help="Specific puzzle IDs to run (overrides --num)",
     )
-    parser.add_argument("--engine", default=DEFAULT_ENGINE, help="Engine label for cache naming")
+    parser.add_argument(
+        "--engine", default=DEFAULT_ENGINE, help="Engine label for cache naming"
+    )
     args = parser.parse_args()
     main(args)

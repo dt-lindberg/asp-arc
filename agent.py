@@ -29,7 +29,7 @@ def _load_syntax_guide():
         raw = f.read()
     if raw.startswith("---"):
         end = raw.find("---", 3)
-        return raw[end + 3:].strip() if end != -1 else raw
+        return raw[end + 3 :].strip() if end != -1 else raw
     return raw.strip()
 
 
@@ -53,7 +53,7 @@ def quick_syntax_fix(program):
     result = program
 
     # Fix 1: C #mod N → C \\ N  (e.g., "C #mod 2" → "C \\ 2")
-    fixed, count = re.subn(r'(\b\w+)\s+#mod\s+(\w+)', r'\1 \\ \2', result)
+    fixed, count = re.subn(r"(\b\w+)\s+#mod\s+(\w+)", r"\1 \\ \2", result)
     if count:
         result = fixed
         n_fixes += count
@@ -62,7 +62,7 @@ def quick_syntax_fix(program):
     # Fix 2: { ... } exactly N :- → N { ... } N :-
     # Match: { ... } exactly <digit> :-
     fixed, count = re.subn(
-        r'\{\s*(.*?)\s*\}\s+exactly\s+(\d+)\s*:-',
+        r"\{\s*(.*?)\s*\}\s+exactly\s+(\d+)\s*:-",
         lambda m: f"{m.group(2)} {{ {m.group(1)} }} {m.group(2)} :-",
         result,
         flags=re.DOTALL,
@@ -70,12 +70,14 @@ def quick_syntax_fix(program):
     if count:
         result = fixed
         n_fixes += count
-        logger.info(f"  [quick_fix] Fixed {count} 'exactly N' → 'N {{ }} N' replacement(s)")
+        logger.info(
+            f"  [quick_fix] Fixed {count} 'exactly N' → 'N {{ }} N' replacement(s)"
+        )
 
     # Fix 3: #const UPPERCASE = N → #const lowercase = N
     fixed, count = re.subn(
-        r'#const\s+([A-Z][A-Z0-9_]*)\s*=',
-        lambda m: f'#const {m.group(1).lower()} =',
+        r"#const\s+([A-Z][A-Z0-9_]*)\s*=",
+        lambda m: f"#const {m.group(1).lower()} =",
         result,
     )
     if count:
@@ -85,51 +87,59 @@ def quick_syntax_fix(program):
 
     # Fix 4: #aggr { ... } = Var → Var = #aggr { ... }  (inverted aggregate assignment)
     fixed, count = re.subn(
-        r'(#(?:count|sum|min|max))\s*(\{[^}]+\})\s*=\s*([A-Z]\w*)',
-        r'\3 = \1 \2',
+        r"(#(?:count|sum|min|max))\s*(\{[^}]+\})\s*=\s*([A-Z]\w*)",
+        r"\3 = \1 \2",
         result,
     )
     if count:
         result = fixed
         n_fixes += count
-        logger.info(f"  [quick_fix] Fixed {count} inverted aggregate(s) (#aggr{{}} = Var → Var = #aggr{{}})")
+        logger.info(
+            f"  [quick_fix] Fixed {count} inverted aggregate(s) (#aggr{{}} = Var → Var = #aggr{{}})"
+        )
 
     # Fix 5: #aggr(...) → #aggr{...}  (parentheses instead of curly braces in aggregates)
     # Handles one level of nested parentheses (e.g., #count(X : pred(Y)))
     fixed, count = re.subn(
-        r'(#(?:count|sum|min|max))\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)',
-        r'\1 { \2 }',
+        r"(#(?:count|sum|min|max))\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)",
+        r"\1 { \2 }",
         result,
     )
     if count:
         result = fixed
         n_fixes += count
-        logger.info(f"  [quick_fix] Fixed {count} aggregate(s) using () instead of {{}}")
+        logger.info(
+            f"  [quick_fix] Fixed {count} aggregate(s) using () instead of {{}}"
+        )
 
     # Fix 6: aggregate(Var = #aggr, Condition, Var) → Var = #aggr { _ : Condition }
     # SWI-Prolog aggregate/3 → Clingo aggregate syntax
     fixed, count = re.subn(
-        r'aggregate\s*\(\s*([A-Z]\w*)\s*=\s*(#(?:count|sum|min|max))\s*,\s*(.+?)\s*,\s*\1\s*\)',
-        r'\1 = \2 { _ : \3 }',
+        r"aggregate\s*\(\s*([A-Z]\w*)\s*=\s*(#(?:count|sum|min|max))\s*,\s*(.+?)\s*,\s*\1\s*\)",
+        r"\1 = \2 { _ : \3 }",
         result,
         flags=re.DOTALL,
     )
     if count:
         result = fixed
         n_fixes += count
-        logger.info(f"  [quick_fix] Fixed {count} aggregate/3 call(s) (SWI-Prolog → Clingo)")
+        logger.info(
+            f"  [quick_fix] Fixed {count} aggregate/3 call(s) (SWI-Prolog → Clingo)"
+        )
 
     # Fix 7: aggregate_all(#aggr, Condition, Var) → Var = #aggr { _ : Condition }
     fixed, count = re.subn(
-        r'aggregate_all\s*\(\s*(#(?:count|sum|min|max))\s*,\s*(.+?)\s*,\s*([A-Z]\w*)\s*\)',
-        r'\3 = \1 { _ : \2 }',
+        r"aggregate_all\s*\(\s*(#(?:count|sum|min|max))\s*,\s*(.+?)\s*,\s*([A-Z]\w*)\s*\)",
+        r"\3 = \1 { _ : \2 }",
         result,
         flags=re.DOTALL,
     )
     if count:
         result = fixed
         n_fixes += count
-        logger.info(f"  [quick_fix] Fixed {count} aggregate_all/3 call(s) (SWI-Prolog → Clingo)")
+        logger.info(
+            f"  [quick_fix] Fixed {count} aggregate_all/3 call(s) (SWI-Prolog → Clingo)"
+        )
 
     return result, n_fixes
 
@@ -204,7 +214,9 @@ def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
             current_program = extracted
             logger.info(f"  [rewrite] extracted program ({len(current_program)} chars)")
         else:
-            logger.info("  [rewrite] no code block in response — keeping current program")
+            logger.info(
+                "  [rewrite] no code block in response — keeping current program"
+            )
 
         err = _check_syntax(current_program, pipeline)
         if err is None:
@@ -229,12 +241,16 @@ def parse_tool_call(text):
         return None
     # Accept both "<function=run_clingo>" and "<function=function run_clingo>"
     # (some model outputs prefix the name with the word "function")
-    fn = re.search(r"<function=(?:function\s+)?([\w]+)>(.*?)</function>", tc.group(1), re.DOTALL)
+    fn = re.search(
+        r"<function=(?:function\s+)?([\w]+)>(.*?)</function>", tc.group(1), re.DOTALL
+    )
     if not fn:
         return None
     params = {
         m.group(1): m.group(2).strip()
-        for m in re.finditer(r"<parameter=(\w+)>(.*?)</parameter>", fn.group(2), re.DOTALL)
+        for m in re.finditer(
+            r"<parameter=(\w+)>(.*?)</parameter>", fn.group(2), re.DOTALL
+        )
     }
     if "num_models" in params:
         try:
@@ -244,7 +260,9 @@ def parse_tool_call(text):
     return {"name": fn.group(1), "params": params}
 
 
-def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max_attempts=4):
+def run_syntax_agent(
+    program, syntax_error, system_prompt, engine, pipeline, max_attempts=4
+):
     """Run the agentic syntax-fix loop for one ASP program.
 
     Each round:
@@ -290,7 +308,9 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
     ]
 
     steps = []
-    prev_error_count = syntax_error.count("\n") + 1  # approximate error count from initial string
+    prev_error_count = (
+        syntax_error.count("\n") + 1
+    )  # approximate error count from initial string
     stall_rounds = 0
     STALL_LIMIT = 4  # exit if no progress for this many consecutive rounds
 
@@ -332,18 +352,22 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
                 break
 
             if attempt >= max_attempts:
-                logger.info("  [syntax agent] max attempts reached with remaining errors")
+                logger.info(
+                    "  [syntax agent] max attempts reached with remaining errors"
+                )
                 break
 
             # Still errors and rounds remain — ask the model to continue
-            messages.append({
-                "role": "user",
-                "content": (
-                    f"The program still has syntax errors:\n{syntax_err_now}\n\n"
-                    f"Current program:\n```asp\n{current_program}\n```\n\n"
-                    f"Please fix the remaining errors. {max_attempts - attempt} round(s) remaining."
-                ),
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"The program still has syntax errors:\n{syntax_err_now}\n\n"
+                        f"Current program:\n```asp\n{current_program}\n```\n\n"
+                        f"Please fix the remaining errors. {max_attempts - attempt} round(s) remaining."
+                    ),
+                }
+            )
             continue
 
         # Execute tool call
@@ -367,8 +391,7 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
             )
         else:
             result_str = (
-                f"Error: unknown tool '{name}'. "
-                f"Available tools: run_clingo, edit_code."
+                f"Error: unknown tool '{name}'. Available tools: run_clingo, edit_code."
             )
 
         logger.info(f"  [syntax agent] result: {result_str[:150]}")
@@ -415,9 +438,11 @@ def run_syntax_agent(program, syntax_error, system_prompt, engine, pipeline, max
                 f"Continue fixing. {max_attempts - attempt} round(s) remaining."
             )
 
-        messages.append({
-            "role": "user",
-            "content": f"<tool_response>\n{tool_response_content}\n</tool_response>",
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": f"<tool_response>\n{tool_response_content}\n</tool_response>",
+            }
+        )
 
     return current_program, steps

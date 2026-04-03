@@ -154,7 +154,9 @@ def _annotate_clingo_error(error_str):
     """Append human-readable hints to cryptic Clingo error messages."""
     hints = []
     low = error_str.lower()
-    if "unexpected =" in low and any(a in low for a in ("#count", "#sum", "#min", "#max")):
+    if "unexpected =" in low and any(
+        a in low for a in ("#count", "#sum", "#min", "#max")
+    ):
         hints.append(
             "Hint: Aggregate on the right-hand side: `Var = #aggr{...}`, not `#aggr{...} = Var`"
         )
@@ -190,7 +192,9 @@ def build_train_feedback(train_results):
     ]
     shared_error = (
         all_clingo_errors[0]
-        if all_clingo_errors and len(set(all_clingo_errors)) == 1 and len(all_clingo_errors) > 1
+        if all_clingo_errors
+        and len(set(all_clingo_errors)) == 1
+        and len(all_clingo_errors) > 1
         else None
     )
 

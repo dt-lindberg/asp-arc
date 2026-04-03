@@ -73,7 +73,7 @@ class Pipeline:
                 raw = f.read()
                 if raw.startswith("---"):
                     end = raw.find("---", 3)
-                    guide_content = raw[end + 3:].strip() if end != -1 else raw
+                    guide_content = raw[end + 3 :].strip() if end != -1 else raw
                 else:
                     guide_content = raw.strip()
             self.prompt["syntax_agent"] = self.prompt["syntax_agent"].replace(
@@ -163,7 +163,10 @@ class Pipeline:
             if kind not in self.cache:
                 self.cache[kind] = {}
             for idx, (thinking, resp) in zip(miss_indices, generated):
-                self.cache[kind][prompts[idx]] = {"response": resp, "thinking": thinking}
+                self.cache[kind][prompts[idx]] = {
+                    "response": resp,
+                    "thinking": thinking,
+                }
                 results[idx] = (thinking, resp)
             self.save_cache(kind)
 

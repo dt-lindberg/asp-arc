@@ -74,14 +74,16 @@ def run_clingo(code, num_models=1, extra_args=""):
         return "UNSATISFIABLE (0 answer sets)"
 
     lines = []
-    for i, m in enumerate(models[:max(num_models, 1)], 1):
+    for i, m in enumerate(models[: max(num_models, 1)], 1):
         lines.append(f"Answer: {i}")
         lines.append(" ".join(sorted(m)) if m else "(empty model)")
     lines.append(f"SATISFIABLE ({len(models)} answer set(s))")
     return "\n".join(lines)
 
 
-def edit_code(current_program, file_path=None, content=None, old_str=None, new_str=None):
+def edit_code(
+    current_program, file_path=None, content=None, old_str=None, new_str=None
+):
     """Patch the in-memory ASP program string.
 
     Args:

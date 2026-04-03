@@ -5,7 +5,7 @@ MODEL_PATH = "chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"
 SEED = 132
 
 # INFERENCE / SAMPLING
-MAX_MODEL_LEN = 220_000     # total context window; the only token limit
+MAX_MODEL_LEN = 220_000  # total context window; the only token limit
 TEMPERATURE = 1.0
 TOP_P = 0.95
 TOP_K = 20
@@ -24,14 +24,14 @@ MAX_SYNTAX_ATTEMPTS = 10
 SYNTAX_GUIDE_PATH = "docs/asp_syntax_guide.md"
 
 # MULTI-CANDIDATE GENERATION
-N_CANDIDATES = 6   # number of initial candidates generated per puzzle
+N_CANDIDATES = 6  # number of initial candidates generated per puzzle
 
 # PIPELINE
 DEFAULT_ENGINE = "nemotron-cascade-2"
 
 PROMPT_PATHS = {
-    "single_step":  "prompts/single_step.txt",
-    "reattempt":    "prompts/5_reattempt.txt",
+    "single_step": "prompts/single_step.txt",
+    "reattempt": "prompts/5_reattempt.txt",
     "syntax_agent": "prompts/syntax_agent.txt",
 }
 
@@ -45,4 +45,12 @@ ARC_V2_EVALUATION = "arc-puzzles/ARC-AGI-2/data/evaluation"
 LOG_FORMAT = (
     "%(asctime)s [%(levelname)s] %(name)s - %(funcName)s:%(lineno)d > %(message)s"
 )
-ALLOWED_LOGGERS = ("__main__", "pipeline", "arc_loader", "eval", "nemotron_engine", "agent", "tools")
+ALLOWED_LOGGERS = (
+    "__main__",
+    "pipeline",
+    "arc_loader",
+    "eval",
+    "nemotron_engine",
+    "agent",
+    "tools",
+)
