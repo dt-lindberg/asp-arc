@@ -25,7 +25,7 @@ from utils import grid_to_input_facts
 st.set_page_config(page_title="ARC-ASP Inspector", layout="wide")
 
 # ---------------------------------------------------------------------------
-# ARC colour palette (standard across all ARC-AGI tasks)
+# ARC color palette (standard across all ARC-AGI tasks)
 # ---------------------------------------------------------------------------
 
 ARC_COLORS = {
@@ -47,7 +47,7 @@ ARC_COLORS = {
 
 
 def _grid_html(grid, cell_px=26):
-    """Render a 2D integer grid as a coloured HTML table."""
+    """Render a 2D integer grid as a colored HTML table."""
     rows = []
     for row in grid:
         cells = []
@@ -608,14 +608,14 @@ with st.sidebar:
         st.error(f"Could not load {selected_file}: {e}")
         st.stop()
 
-    n_solved = sum(1 for r in records if r.get("final_correct"))
+    n_solved = sum(1 for r in records if r.get("test_correct"))
     st.caption(f"{n_solved}/{len(records)} puzzles solved")
 
     st.divider()
     st.header("Puzzle")
 
     def _puzzle_label(r):
-        status = "SOLVED" if r.get("final_correct") else "UNSOLVED"
+        status = "SOLVED" if r.get("test_correct") else "UNSOLVED"
         sa = r.get("syntax_agent", {})
         sa_tag = ""
         if sa.get("triggered"):
@@ -636,9 +636,10 @@ record = records[puzzle_idx]
 puzzle_id = record["puzzle_id"]
 dataset = record.get("dataset", "arc-v1-training")
 final_correct = record.get("final_correct", False)
+test_correct = record.get("test_correct", False)
 
-status_color = "#2ECC40" if final_correct else "#FF4136"
-status_text = "SOLVED" if final_correct else "UNSOLVED"
+status_color = "#2ECC40" if test_correct else "#FF4136"
+status_text = "SOLVED" if test_correct else "UNSOLVED"
 st.html(
     f'<h2 style="margin-bottom:2px">{puzzle_id} '
     f'<span style="color:{status_color};font-size:14px">● {status_text}</span></h2>'

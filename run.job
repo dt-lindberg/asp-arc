@@ -20,7 +20,7 @@ mkdir -p outputs caches logs
 source .venv/bin/activate
 
 python3 main.py \
-    --puzzle_ids 0d3d703e 0520fde7 1e0a9b12
+    --puzzle_ids 8e1813be 834ec97d 469497ad
 
 echo ""
 echo "Job complete."
