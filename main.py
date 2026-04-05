@@ -670,6 +670,17 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         logger.info(
             f"Starting async refinement for {active_count}/{n} unsolved puzzle(s)..."
         )
+        # The sync NemotronEngine holds nearly all GPU VRAM (KV cache pre-allocated).
+        # Release it completely before initialising AsyncNemotronEngine so the two
+        # engines do not coexist in GPU memory at the same time.
+        import gc
+        import torch
+        del engine
+        pipeline._engine = None
+        gc.collect()
+        torch.cuda.empty_cache()
+        logger.info("Sync engine released; loading async engine for refinement...")
+
         async_engine = pipeline._get_async_engine()
         asyncio.run(
             _run_refinement_async(
