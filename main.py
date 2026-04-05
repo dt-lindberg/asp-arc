@@ -207,17 +207,22 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     all_cand_programs = []  # all_cand_programs[cand][puzzle]
     all_cand_results = []  # all_cand_results[cand][puzzle] = (thinking, response)
 
-    for cand_idx in range(N_CANDIDATES):
-        strategy_name, suffix = CAND_STRATEGIES[cand_idx]
-        cand_replaces = [{"<EXAMPLES>": fe + suffix} for fe in formatted_examples]
-        cand_gen_results = pipeline.gen_response_batch("single_step", cand_replaces)
-        all_cand_results.append(cand_gen_results)
-        all_cand_programs.append(
-            [extract_code_blocks(resp) for _, resp in cand_gen_results]
-        )
-        logger.info(
-            f"  Candidate {cand_idx} ({strategy_name}) generated for all {n} puzzles"
-        )
+    # Submit all N_CANDIDATES × n requests in one vLLM call, eliminating 5 sequential
+    # idle gaps between the 6 per-strategy calls that existed previously.
+    # Layout: candidate outer-loop, puzzle inner-loop — mirrors the original indexing.
+    all_replaces = [
+        {"<EXAMPLES>": formatted_examples[pi] + suffix}
+        for _, suffix in CAND_STRATEGIES[:N_CANDIDATES]
+        for pi in range(n)
+    ]
+    flat_results = pipeline.gen_response_batch("single_step", all_replaces)
+    all_cand_results = [flat_results[c * n : (c + 1) * n] for c in range(N_CANDIDATES)]
+    all_cand_programs = [
+        [extract_code_blocks(resp) for _, resp in row] for row in all_cand_results
+    ]
+    logger.info(
+        f"  Flat batch: {N_CANDIDATES} candidates × {n} puzzles = {N_CANDIDATES * n} requests"
+    )
 
     # ── Per-candidate syntax patching + evaluation ────────────────────────
     # Apply quick_fix + rewrite to each candidate independently before ranking.
