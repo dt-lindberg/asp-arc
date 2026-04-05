@@ -8,9 +8,11 @@ Results are saved as JSON to results/<run_id>.json.
 """
 
 import argparse
+import asyncio
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 from arc_loader import get_puzzles, get_puzzles_by_ids
@@ -23,7 +25,7 @@ from eval import (
     _check_syntax as _check_syntax_fn,
 )
 from utils import format_examples_for_prompt, extract_code_blocks
-from agent import run_syntax_agent, quick_syntax_fix, rewrite_syntax_fix
+from agent import run_syntax_agent, quick_syntax_fix, rewrite_syntax_fix, async_rewrite_syntax_fix
 from logger import setup_logging, get_logger
 from config import DEFAULT_ENGINE, MAX_ATTEMPTS, MAX_SYNTAX_ATTEMPTS, SEED, N_CANDIDATES
 
@@ -110,6 +112,132 @@ def _record_step(record, step_name, prompt, thinking, response, extracted):
         "response": response,
         "extracted": extracted,
     }
+
+
+# ---------------------------------------------------------------------------
+# Async refinement loop
+# ---------------------------------------------------------------------------
+
+
+async def _run_refinement_async(
+    puzzles, async_engine, pipeline, formatted_examples, records, histories,
+    system_prompt, instruction, programs
+):
+    """Run the refinement loop for all puzzles concurrently.
+
+    Each puzzle is an independent asyncio coroutine that loops through its own
+    MAX_ATTEMPTS refinement attempts. All coroutines run concurrently via
+    asyncio.gather(), so their vLLM requests land in the same batch. Clingo
+    verification runs in a ThreadPoolExecutor so it never blocks the event loop.
+
+    Args:
+        puzzles:            List of puzzle dicts.
+        async_engine:       AsyncNemotronEngine instance.
+        pipeline:           Pipeline instance (for cache and Clingo).
+        formatted_examples: Pre-formatted training example strings, one per puzzle.
+        records:            Per-puzzle result dicts (mutated in place).
+        histories:          Per-puzzle (program, feedback) history lists (mutated).
+        system_prompt:      Part A of the reattempt prompt template.
+        instruction:        Part B of the reattempt prompt template.
+        programs:           Current best program per puzzle (mutated in place).
+    """
+    loop = asyncio.get_event_loop()
+    # One thread per concurrent Clingo call; each puzzle may run one Clingo check
+    # per attempt, so we need at least n × (1 + MAX_SYNTAX_RETRY) workers.
+    executor = ThreadPoolExecutor(max_workers=min(64, len(puzzles) * 5))
+
+    async def _refine_one(i):
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            if records[i]["all_train_correct"]:
+                return
+
+            prompt = _build_reattempt_prompt(
+                system_prompt, instruction, formatted_examples[i], histories[i]
+            )
+
+            # Awaiting here yields control so other puzzle coroutines submit their
+            # requests; vLLM batches all in-flight requests automatically.
+            thinking, response = await async_engine.generate_one(
+                [{"role": "user", "content": prompt}]
+            )
+            new_program = extract_code_blocks(response)
+
+            # Cache the response so the reattempt prompt key is stored.
+            await pipeline.save_cache_async("reattempt", prompt, thinking, response)
+
+            syntax_fixes = []
+
+            quick_fixed, n_q = quick_syntax_fix(new_program)
+            if n_q > 0:
+                new_program = quick_fixed
+                syntax_fixes.append({"stage": "quick_fix", "n_fixes": n_q})
+                logger.info(
+                    f"  [{puzzles[i]['id']}] async refinement {attempt} quick_fix: {n_q} fix(es)"
+                )
+
+            # Clingo syntax check in thread pool — non-blocking
+            syntax_err = await loop.run_in_executor(
+                executor, _check_syntax_fn, new_program, pipeline
+            )
+            if syntax_err:
+                new_program, n_rw_rounds, rewrite_err = await async_rewrite_syntax_fix(
+                    new_program, syntax_err, async_engine, pipeline, loop, executor,
+                    max_rewrites=3
+                )
+                if rewrite_err is None:
+                    syntax_fixes.append({"stage": "rewrite", "rounds": n_rw_rounds})
+                    logger.info(
+                        f"  [{puzzles[i]['id']}] async refinement {attempt} rewrite fixed "
+                        f"syntax in {n_rw_rounds} round(s)"
+                    )
+                else:
+                    syntax_fixes.append(
+                        {"stage": "rewrite", "rounds": n_rw_rounds, "failed": True}
+                    )
+                    logger.info(
+                        f"  [{puzzles[i]['id']}] async refinement {attempt} rewrite partial"
+                    )
+
+            programs[i] = new_program
+
+            logger.info(f"  [{puzzles[i]['id']}] async attempt {attempt}: running Clingo...")
+
+            # Clingo verification in thread pool — non-blocking
+            new_train_results = await loop.run_in_executor(
+                executor, verify_on_training_examples,
+                new_program, puzzles[i]["train"], pipeline
+            )
+
+            is_correct = all_correct(new_train_results)
+            n_correct = sum(r["correct"] for r in new_train_results)
+            logger.info(
+                f"  [{puzzles[i]['id']}] async attempt {attempt}: "
+                f"{n_correct}/{len(new_train_results)} correct"
+            )
+
+            refinement_entry = {
+                "attempt": attempt,
+                "syntax_fixes": syntax_fixes,
+                "prompt": prompt,
+                "thinking": thinking,
+                "response": response,
+                "program": new_program,
+                "train_verifications": new_train_results,
+                "all_train_correct": is_correct,
+            }
+            records[i]["refinements"].append(refinement_entry)
+
+            if is_correct:
+                records[i]["all_train_correct"] = True
+                records[i]["final_correct"] = True
+                logger.info(f"  [{puzzles[i]['id']}] SOLVED at async attempt {attempt}")
+                return
+            else:
+                feedback = build_train_feedback(new_train_results)
+                histories[i].append((new_program, feedback))
+
+    await asyncio.gather(*[_refine_one(i) for i in range(len(puzzles))])
+    executor.shutdown(wait=False)
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +647,10 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     logger.info(f"After syntax fix: {n_solved}/{n} puzzles pass all training examples")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Refinement loop
+    # Async refinement loop
+    # Each puzzle runs as an independent asyncio coroutine so that their
+    # LLM requests arrive at vLLM concurrently and are batched together.
+    # Clingo verification runs in a ThreadPoolExecutor — non-blocking.
     # ──────────────────────────────────────────────────────────────────────
     system_prompt, instruction = pipeline.prompt["reattempt"].split("===SEPARATOR===")
     system_prompt = system_prompt.strip()
@@ -528,109 +659,28 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     # Per-puzzle history: list of (program, feedback_str)
     histories = [[] for _ in range(n)]
 
-    # Seed history with the initial attempt + feedback
+    # Seed history with the initial attempt + feedback for unsolved puzzles
     for i in range(n):
         if not records[i]["all_train_correct"]:
             feedback = build_train_feedback(train_results_list[i])
             histories[i].append((programs[i], feedback))
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        active = [i for i in range(n) if not records[i]["all_train_correct"]]
-        if not active:
-            logger.info(
-                f"All puzzles solved — stopping after {attempt - 1} refinement(s)"
-            )
-            break
-
+    active_count = sum(1 for r in records if not r["all_train_correct"])
+    if active_count > 0:
         logger.info(
-            f"Refinement attempt {attempt}/{MAX_ATTEMPTS}: {len(active)} active puzzle(s)"
+            f"Starting async refinement for {active_count}/{n} unsolved puzzle(s)..."
         )
-
-        raw_prompts = [
-            _build_reattempt_prompt(
-                system_prompt,
-                instruction,
-                formatted_examples[i],
-                histories[i],
+        async_engine = pipeline._get_async_engine()
+        asyncio.run(
+            _run_refinement_async(
+                puzzles, async_engine, pipeline, formatted_examples,
+                records, histories, system_prompt, instruction, programs
             )
-            for i in active
-        ]
+        )
+    else:
+        logger.info("All puzzles already solved — skipping refinement loop")
 
-        gen_results = pipeline.gen_response_raw_batch("reattempt", raw_prompts)
-
-        for i, (thinking, response) in zip(active, gen_results):
-            new_program = extract_code_blocks(response)
-
-            # Apply syntax fixes before verification — prevents oscillation where
-            # a near-correct program gets discarded due to a trivial syntax error
-            # and the next attempt regresses to a worse structure.
-            syntax_fixes = []
-
-            quick_fixed, n_q = quick_syntax_fix(new_program)
-            if n_q > 0:
-                new_program = quick_fixed
-                syntax_fixes.append({"stage": "quick_fix", "n_fixes": n_q})
-                logger.info(
-                    f"  [{puzzles[i]['id']}] refinement {attempt} quick_fix: {n_q} fix(es)"
-                )
-
-            syntax_err = _check_syntax_fn(new_program, pipeline)
-            if syntax_err:
-                rewritten, n_rw_rounds, rewrite_err = rewrite_syntax_fix(
-                    new_program, syntax_err, engine, pipeline, max_rewrites=3
-                )
-                if rewrite_err is None:
-                    new_program = rewritten
-                    syntax_fixes.append({"stage": "rewrite", "rounds": n_rw_rounds})
-                    logger.info(
-                        f"  [{puzzles[i]['id']}] refinement {attempt} rewrite fixed syntax "
-                        f"in {n_rw_rounds} round(s)"
-                    )
-                else:
-                    syntax_fixes.append(
-                        {"stage": "rewrite", "rounds": n_rw_rounds, "failed": True}
-                    )
-                    logger.info(
-                        f"  [{puzzles[i]['id']}] refinement {attempt} rewrite partial — "
-                        f"continuing with error"
-                    )
-
-            programs[i] = new_program
-
-            logger.info(f"  [{puzzles[i]['id']}] re-running Clingo...")
-            t0 = time.time()
-            new_train_results = verify_on_training_examples(
-                new_program, puzzles[i]["train"], pipeline
-            )
-            elapsed = round(time.time() - t0, 2)
-
-            is_correct = all_correct(new_train_results)
-            n_correct = sum(r["correct"] for r in new_train_results)
-            logger.info(
-                f"  [{puzzles[i]['id']}] attempt {attempt}: {n_correct}/{len(new_train_results)} correct in {elapsed}s"
-            )
-
-            refinement_entry = {
-                "attempt": attempt,
-                "syntax_fixes": syntax_fixes,
-                "prompt": raw_prompts[active.index(i)],
-                "thinking": thinking,
-                "response": response,
-                "program": new_program,
-                "train_verifications": new_train_results,
-                "all_train_correct": is_correct,
-            }
-            records[i]["refinements"].append(refinement_entry)
-
-            if is_correct:
-                records[i]["all_train_correct"] = True
-                records[i]["final_correct"] = True
-                logger.info(f"  [{puzzles[i]['id']}] SOLVED at attempt {attempt}")
-            else:
-                feedback = build_train_feedback(new_train_results)
-                histories[i].append((new_program, feedback))
-
-    # Mark final correctness for puzzles solved on first attempt
+    # Mark final correctness for puzzles solved on first attempt (no refinements needed)
     for i in range(n):
         if records[i]["all_train_correct"] and not records[i]["refinements"]:
             records[i]["final_correct"] = True

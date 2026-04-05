@@ -38,6 +38,10 @@ class Pipeline:
         self.path_cache = {}
         self.cache = {}
         self._engine = None
+        self._async_engine = None
+        # Lock protecting cache file I/O in the async refinement path.
+        # Dict assignment is GIL-protected, but save_cache() must not interleave.
+        self._cache_lock = None  # created lazily inside an asyncio event loop
 
         if args:
             for k, v in args.items():
@@ -56,6 +60,18 @@ class Pipeline:
 
             self._engine = NemotronEngine()
         return self._engine
+
+    def _get_async_engine(self):
+        """Return the shared AsyncNemotronEngine, creating it on first call.
+
+        Must not be called while a synchronous NemotronEngine is loaded in the
+        same process — only one vLLM engine instance may exist at a time.
+        """
+        if self._async_engine is None:
+            from nemotron_engine import AsyncNemotronEngine
+
+            self._async_engine = AsyncNemotronEngine()
+        return self._async_engine
 
     # ------------------------------------------------------------------
     # Prompts & cache
@@ -100,6 +116,22 @@ class Pipeline:
         path = self._cache_path(kind)
         with open(path, "w") as f:
             json.dump(self.cache[kind], f)
+
+    async def save_cache_async(self, kind, prompt, thinking, resp):
+        """Thread-safe cache write for use from async coroutines.
+
+        Multiple puzzle coroutines may finish concurrently; the asyncio.Lock
+        ensures only one coroutine writes the JSON file at a time.
+        """
+        import asyncio
+
+        if self._cache_lock is None:
+            self._cache_lock = asyncio.Lock()
+        async with self._cache_lock:
+            if kind not in self.cache:
+                self.cache[kind] = {}
+            self.cache[kind][prompt] = {"response": resp, "thinking": thinking}
+            self.save_cache(kind)
 
     @staticmethod
     def _cache_response(entry):

@@ -229,6 +229,75 @@ def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
     return current_program, max_rewrites, current_error
 
 
+async def async_rewrite_syntax_fix(
+    program, syntax_error, async_engine, pipeline, loop, executor, max_rewrites=3
+):
+    """Async mirror of rewrite_syntax_fix() for use inside per-puzzle coroutines.
+
+    Runs Clingo syntax checks in the provided ThreadPoolExecutor so they never
+    block the asyncio event loop. LLM calls go through async_engine.generate_one()
+    so vLLM batches concurrent puzzle requests together.
+
+    Args:
+        program:      Current ASP program string.
+        syntax_error: Clingo error string.
+        async_engine: AsyncNemotronEngine instance.
+        pipeline:     Pipeline instance (for _check_syntax calls).
+        loop:         Running asyncio event loop.
+        executor:     ThreadPoolExecutor for Clingo calls.
+        max_rewrites: Maximum rewrite attempts.
+
+    Returns:
+        (fixed_program, n_rounds_used, final_error)  — same contract as
+        rewrite_syntax_fix().
+    """
+    current_program = program
+    current_error = syntax_error
+
+    for attempt in range(1, max_rewrites + 1):
+        annotated = _annotate_clingo_error(current_error)
+        logger.info(f"  [async_rewrite] attempt {attempt}/{max_rewrites}")
+
+        user_content = (
+            f"{_REWRITE_GUIDE}\n\n"
+            f"Fix the Clingo syntax errors in this program. "
+            f"Output the COMPLETE fixed program in ONE ```asp code block.\n\n"
+            f"Program:\n```asp\n{current_program}\n```\n\n"
+            f"Clingo errors:\n{annotated}"
+        )
+        messages = [
+            {"role": "system", "content": _REWRITE_SYSTEM},
+            {"role": "user", "content": user_content},
+        ]
+
+        # yield control so other puzzle coroutines can submit requests concurrently
+        thinking, response = await async_engine.generate_one(messages)
+        extracted = extract_code_blocks(response)
+
+        if extracted:
+            current_program = extracted
+            logger.info(
+                f"  [async_rewrite] extracted program ({len(current_program)} chars)"
+            )
+        else:
+            logger.info(
+                "  [async_rewrite] no code block in response — keeping current program"
+            )
+
+        # Check syntax in thread pool — non-blocking
+        err = await loop.run_in_executor(
+            executor, _check_syntax, current_program, pipeline
+        )
+        if err is None:
+            logger.info(f"  [async_rewrite] syntax clean after {attempt} rewrite(s)")
+            return current_program, attempt, None
+
+        logger.info(f"  [async_rewrite] still has errors after attempt {attempt}")
+        current_error = err
+
+    return current_program, max_rewrites, current_error
+
+
 def parse_tool_call(text):
     """Parse a <tool_call> XML block from model output.
 

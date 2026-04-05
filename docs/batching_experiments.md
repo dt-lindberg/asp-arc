@@ -21,7 +21,7 @@ the default 3-puzzle run). Eliminates 5 inter-candidate idle GPU gaps in Stage 1
 
 | SLURM Job ID | Puzzles | Notes |
 |---|---|---|
-| TBD — submitted after commit | 8e1813be 834ec97d 469497ad | First run with flat batch |
+| 21533018 | 8e1813be 834ec97d 469497ad | First run with flat batch |
 
 **Verification checklist:**
 - [ ] `results/<run_id>.json` has same schema, plausible programs
