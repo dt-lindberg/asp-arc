@@ -23,12 +23,17 @@ the default 3-puzzle run). Eliminates 5 inter-candidate idle GPU gaps in Stage 1
 |---|---|---|
 | 21533018 | 8e1813be 834ec97d 469497ad | First run with flat batch |
 
+**Results (run_id: 20260405_093130):**
+- 2/3 solved (train+test): 8e1813be SOLVED, 834ec97d SOLVED, 469497ad UNSOLVED
+- 18 entries in `caches/vllm_nemotron-cascade-2_single_step.json` (6×3 confirmed)
+- 8e1813be solved at cand 3 → 4 candidates evaluated; 834ec97d solved at cand 1 → 2 evaluated
+- 469497ad unsolved after all 6 candidates + 8 refinements
+
 **Verification checklist:**
-- [ ] `results/<run_id>.json` has same schema, plausible programs
-- [ ] 18 cache entries appear in `caches/vllm_nemotron-cascade-2_single_step.json`
-  (6 candidates × 3 puzzles = 18 distinct prompts)
-- [ ] No index errors in reshaping (check `all_cand_results[c][i]` matches original)
-- [ ] Solve rate comparable to baseline
+- [x] `results/20260405_093130.json` has same schema and plausible programs
+- [x] 18 cache entries in single_step cache (6 candidates × 3 puzzles)
+- [x] No index errors in reshaping
+- [x] Solve rate 2/3 — comparable to baseline
 
 ---
 
@@ -54,7 +59,7 @@ for thread-safe async cache writes.
 
 | SLURM Job ID | Puzzles | Notes |
 |---|---|---|
-| TBD — submitted after commit | 8e1813be 834ec97d 469497ad | First run with async refinement |
+| 21534547 | 8e1813be 834ec97d 469497ad | First run with async refinement; Stage 1 from cache |
 
 **Verification checklist:**
 - [ ] `results/<run_id>.json` has same schema and `refinements` list per puzzle
