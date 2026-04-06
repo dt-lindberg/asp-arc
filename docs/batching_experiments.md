@@ -59,7 +59,8 @@ for thread-safe async cache writes.
 
 | SLURM Job ID | Puzzles | Notes |
 |---|---|---|
-| 21534547 | 8e1813be 834ec97d 469497ad | First run with async refinement; Stage 1 from cache |
+| 21534547 | 8e1813be 834ec97d 469497ad | FAILED — sync engine held GPU VRAM, async engine OOM |
+| 21534769 | 8e1813be 834ec97d 469497ad | Fix: release sync engine before async engine init |
 
 **Verification checklist:**
 - [ ] `results/<run_id>.json` has same schema and `refinements` list per puzzle
