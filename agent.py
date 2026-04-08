@@ -183,13 +183,15 @@ def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
         max_rewrites:  Maximum rewrite attempts before giving up.
 
     Returns:
-        (fixed_program, n_rounds_used, final_error)
+        (fixed_program, n_rounds_used, final_error, rounds)
         fixed_program: best program state at exit.
         n_rounds_used: how many LLM calls were made.
         final_error:   None if syntax clean, else the remaining error string.
+        rounds:        list of per-round audit dicts with prompt/thinking/response/program.
     """
     current_program = program
     current_error = syntax_error
+    rounds = []
 
     for attempt in range(1, max_rewrites + 1):
         annotated = _annotate_clingo_error(current_error)
@@ -210,6 +212,7 @@ def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
         thinking, response = engine.generate_batch([messages])[0]
         extracted = extract_code_blocks(response)
 
+        program_before = current_program
         if extracted:
             current_program = extracted
             logger.info(f"  [rewrite] extracted program ({len(current_program)} chars)")
@@ -219,14 +222,27 @@ def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
             )
 
         err = _check_syntax(current_program, pipeline)
+
+        rounds.append({
+            "round": attempt,
+            "system_prompt": _REWRITE_SYSTEM,
+            "prompt": user_content,
+            "thinking": thinking,
+            "response": response,
+            "program_before": program_before,
+            "program_after": current_program,
+            "syntax_error_before": current_error,
+            "syntax_error_after": err,
+        })
+
         if err is None:
             logger.info(f"  [rewrite] syntax clean after {attempt} rewrite(s)")
-            return current_program, attempt, None
+            return current_program, attempt, None, rounds
 
         logger.info(f"  [rewrite] still has errors after attempt {attempt}")
         current_error = err
 
-    return current_program, max_rewrites, current_error
+    return current_program, max_rewrites, current_error, rounds
 
 
 async def async_rewrite_syntax_fix(
@@ -248,11 +264,12 @@ async def async_rewrite_syntax_fix(
         max_rewrites: Maximum rewrite attempts.
 
     Returns:
-        (fixed_program, n_rounds_used, final_error)  — same contract as
-        rewrite_syntax_fix().
+        (fixed_program, n_rounds_used, final_error, rounds)  — same contract as
+        rewrite_syntax_fix() with an additional per-round audit list.
     """
     current_program = program
     current_error = syntax_error
+    rounds = []
 
     for attempt in range(1, max_rewrites + 1):
         annotated = _annotate_clingo_error(current_error)
@@ -274,6 +291,7 @@ async def async_rewrite_syntax_fix(
         thinking, response = await async_engine.generate_one(messages)
         extracted = extract_code_blocks(response)
 
+        program_before = current_program
         if extracted:
             current_program = extracted
             logger.info(
@@ -288,14 +306,27 @@ async def async_rewrite_syntax_fix(
         err = await loop.run_in_executor(
             executor, _check_syntax, current_program, pipeline
         )
+
+        rounds.append({
+            "round": attempt,
+            "system_prompt": _REWRITE_SYSTEM,
+            "prompt": user_content,
+            "thinking": thinking,
+            "response": response,
+            "program_before": program_before,
+            "program_after": current_program,
+            "syntax_error_before": current_error,
+            "syntax_error_after": err,
+        })
+
         if err is None:
             logger.info(f"  [async_rewrite] syntax clean after {attempt} rewrite(s)")
-            return current_program, attempt, None
+            return current_program, attempt, None, rounds
 
         logger.info(f"  [async_rewrite] still has errors after attempt {attempt}")
         current_error = err
 
-    return current_program, max_rewrites, current_error
+    return current_program, max_rewrites, current_error, rounds
 
 
 def parse_tool_call(text):

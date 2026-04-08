@@ -180,20 +180,29 @@ async def _run_refinement_async(
                 executor, _check_syntax_fn, new_program, pipeline
             )
             if syntax_err:
-                new_program, n_rw_rounds, rewrite_err = await async_rewrite_syntax_fix(
+                new_program, n_rw_rounds, rewrite_err, rw_rounds = await async_rewrite_syntax_fix(
                     new_program, syntax_err, async_engine, pipeline, loop, executor,
                     max_rewrites=3
                 )
                 if rewrite_err is None:
-                    syntax_fixes.append({"stage": "rewrite", "rounds": n_rw_rounds})
+                    syntax_fixes.append({
+                        "stage": "rewrite",
+                        "rounds": n_rw_rounds,
+                        # Full per-round audit: prompt, thinking, response, program state
+                        "rewrite_details": rw_rounds,
+                    })
                     logger.info(
                         f"  [{puzzles[i]['id']}] async refinement {attempt} rewrite fixed "
                         f"syntax in {n_rw_rounds} round(s)"
                     )
                 else:
-                    syntax_fixes.append(
-                        {"stage": "rewrite", "rounds": n_rw_rounds, "failed": True}
-                    )
+                    syntax_fixes.append({
+                        "stage": "rewrite",
+                        "rounds": n_rw_rounds,
+                        "failed": True,
+                        # Full per-round audit even on partial fix
+                        "rewrite_details": rw_rounds,
+                    })
                     logger.info(
                         f"  [{puzzles[i]['id']}] async refinement {attempt} rewrite partial"
                     )
@@ -376,14 +385,24 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
 
         for cand_idx in range(N_CANDIDATES):
             strategy_name, _ = CAND_STRATEGIES[cand_idx]
+            cand_thinking, cand_response = all_cand_results[cand_idx][i]
             prog = all_cand_programs[cand_idx][i]
+            prog_raw = prog  # program as extracted from LLM response, before any fixes
             fix_stages = []
+            # Full per-fix-stage audit: prompt/thinking/response/program state
+            fix_details = []
 
             # Stage 1: cheap deterministic regex fixes
             quick_prog, n_q = quick_syntax_fix(prog)
             if n_q > 0:
-                prog = quick_prog
                 fix_stages.append("quick_fix")
+                fix_details.append({
+                    "stage": "quick_fix",
+                    "n_fixes": n_q,
+                    "program_before": prog,
+                    "program_after": quick_prog,
+                })
+                prog = quick_prog
                 logger.info(
                     f"  [{puzzle_id}] cand {cand_idx}: quick_fix applied {n_q} fix(es)"
                 )
@@ -392,12 +411,18 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             syntax_err = _check_syntax_fn(prog, pipeline)
             syntax_broken = False
             if syntax_err:
-                rewritten, n_rw, rewrite_err = rewrite_syntax_fix(
+                rewritten, n_rw, rewrite_err, rw_rounds = rewrite_syntax_fix(
                     prog, syntax_err, engine, pipeline, max_rewrites=3
                 )
                 if rewrite_err is None:
                     prog = rewritten
                     fix_stages.append("rewrite")
+                    fix_details.append({
+                        "stage": "rewrite",
+                        "rounds": rw_rounds,
+                        "n_rounds": n_rw,
+                        "syntax_fixed": True,
+                    })
                     logger.info(
                         f"  [{puzzle_id}] cand {cand_idx}: rewrite fixed syntax "
                         f"in {n_rw} round(s)"
@@ -405,6 +430,13 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
                 else:
                     prog = rewritten  # use best partial fix
                     fix_stages.append("rewrite_partial")
+                    fix_details.append({
+                        "stage": "rewrite_partial",
+                        "rounds": rw_rounds,
+                        "n_rounds": n_rw,
+                        "syntax_fixed": False,
+                        "remaining_error": rewrite_err,
+                    })
                     syntax_broken = True
                     logger.info(
                         f"  [{puzzle_id}] cand {cand_idx}: rewrite partial — "
@@ -422,12 +454,27 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             has_syntax = any(r["status"] == "clingo_error" for r in cand_results)
             is_solved = all_correct(cand_results)
 
+            # Build the prompt that was actually sent for this candidate
+            _, suffix = CAND_STRATEGIES[cand_idx]
+            cand_prompt = pipeline.prompt["single_step"].replace(
+                "<EXAMPLES>", formatted_examples[i] + suffix
+            )
+
             candidate_records.append(
                 {
                     "idx": cand_idx,
                     "strategy": strategy_name,
+                    # Full generation audit
+                    "prompt": cand_prompt,
+                    "thinking": cand_thinking,
+                    "response": cand_response,
+                    "program_raw": prog_raw,
+                    "program_final": prog,
+                    # Syntax fix audit
                     "syntax_ok": not syntax_broken and not has_syntax,
                     "syntax_fix_stages": fix_stages,
+                    "syntax_fix_details": fix_details,
+                    # Evaluation results
                     "n_correct": n_correct,
                     "avg_accuracy": round(avg_acc, 4),
                     "is_solved": is_solved,
@@ -562,7 +609,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         logger.info(
             f"  [{puzzles[i]['id']}] syntax error — trying single-shot rewrite (3 attempts)..."
         )
-        rewritten, n_rewrite_rounds, rewrite_err = rewrite_syntax_fix(
+        rewritten, n_rewrite_rounds, rewrite_err, rw_rounds = rewrite_syntax_fix(
             program=programs[i],
             syntax_error=syntax_error,
             engine=engine,
@@ -574,6 +621,8 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             "triggered": True,
             "initial_error": syntax_error,
             "rewrite_rounds": n_rewrite_rounds,
+            # Full per-round audit: prompt, thinking, response, program state
+            "rewrite_details": rw_rounds,
         }
 
         if rewrite_err is None:
