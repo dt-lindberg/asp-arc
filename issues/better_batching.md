@@ -1,3 +1,8 @@
+---
+name: Better batching
+status: closed
+---
+
 # Plan: Maximize Batching in asp-arc Pipeline
 
 ## Context
