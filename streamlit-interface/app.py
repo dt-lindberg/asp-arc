@@ -355,6 +355,75 @@ def _count_clingo_errors(error_str):
     return len(re.findall(r"<block>:\d+:", error_str))
 
 
+def show_syntax_fix_stage(stage_info, key_prefix):
+    """
+    Render one syntax-fix stage as a collapsible expander.
+
+    * Handles quick_fix (no rounds, just before/after program snapshots)
+      and rewrite / rewrite_partial (per-round thinking + before/after).
+    * Works for both candidate syntax_fix_details and refinement syntax_fixes:
+      - Candidate format: rounds is a list of round dicts, syntax_fixed bool
+      - Refinement format: rounds is an int count, rewrite_details holds the list, failed bool
+    """
+    stage = stage_info["stage"]
+
+    if stage == "quick_fix":
+        n_fixes = stage_info.get("n_fixes", 0)
+        program_before = stage_info.get("program_before", "")
+        program_after = stage_info.get("program_after", "")
+        with st.expander(f"quick_fix — {n_fixes} fix(es) applied", expanded=False):
+            col1, col2 = st.columns(2, gap="small")
+            with col1:
+                st.caption("Before")
+                show_program(program_before)
+            with col2:
+                st.caption("After")
+                show_program(program_after)
+        return
+
+    # Rewrite or rewrite_partial: normalise round list across both schema variants
+    rounds_list = stage_info.get("rounds", [])
+    if isinstance(rounds_list, int):
+        # Refinement schema stores count in 'rounds' and the actual list in 'rewrite_details'
+        rounds_list = stage_info.get("rewrite_details", [])
+
+    n_rounds = len(rounds_list)
+    # Candidate schema has 'syntax_fixed'; refinement schema has 'failed'
+    syntax_fixed = stage_info.get("syntax_fixed", not stage_info.get("failed", False))
+    badge = "FIXED" if syntax_fixed else "partial"
+
+    with st.expander(f"{stage} — {n_rounds} round(s) [{badge}]", expanded=False):
+        for rnd in rounds_list:
+            round_num = rnd.get("round", "?")
+            err_before = rnd.get("syntax_error_before", "")
+            err_after = rnd.get("syntax_error_after", "")
+            n_before = _count_clingo_errors(err_before)
+            n_after = _count_clingo_errors(err_after)
+
+            with st.expander(
+                f"Round {round_num} · {n_before} → {n_after} error(s)", expanded=False
+            ):
+                thinking = rnd.get("thinking", "")
+                if thinking and thinking.strip():
+                    st.markdown("**Thinking**")
+                    st.text_area(
+                        "thinking",
+                        value=thinking,
+                        height=140,
+                        disabled=True,
+                        label_visibility="collapsed",
+                        key=f"{key_prefix}_{stage}_r{round_num}_thinking",
+                    )
+
+                col1, col2 = st.columns(2, gap="small")
+                with col1:
+                    st.caption(f"Before ({n_before} error(s))")
+                    show_program(rnd.get("program_before", ""), err_before)
+                with col2:
+                    st.caption(f"After ({n_after} error(s))")
+                    show_program(rnd.get("program_after", ""), err_after)
+
+
 def show_syntax_agent(syntax_agent, examples, puzzle_idx):
     """
     Render the syntax-agent section between Assembled Program and Training Verification.
@@ -470,8 +539,15 @@ def show_syntax_agent(syntax_agent, examples, puzzle_idx):
 # ---------------------------------------------------------------------------
 
 
-def show_candidates(candidates, puzzle_idx):
-    """Show multi-candidate generation summary table."""
+def show_candidates(candidates, examples, puzzle_idx):
+    """
+    Show multi-candidate generation.
+
+    * Summary table at the top for quick comparison.
+    * Per-candidate expanders below: generation thinking/prompt/response,
+      raw → final program diff, and per-stage syntax fix details.
+    * The selected candidate is auto-expanded.
+    """
     if not candidates:
         return
     st.subheader("Candidate Programs")
@@ -490,19 +566,16 @@ def show_candidates(candidates, puzzle_idx):
             "solved": "✓" if c.get("is_solved") else "",
         })
 
-    # Display as compact HTML table
-    header = ["#", "strategy", "syntax", "fixes", "n_correct", "accuracy", "solved"]
-    col_keys = ["idx", "strategy", "syntax_ok", "fix_stages", "n_correct", "avg_accuracy", "solved"]
     th_style = "padding:4px 10px;text-align:left;border-bottom:1px solid #444;font-size:12px;color:#aaa"
     td_style = "padding:3px 10px;font-size:12px;border-bottom:1px solid #222"
+    header = ["#", "strategy", "syntax", "fixes", "n_correct", "accuracy", "solved"]
+    col_keys = ["idx", "strategy", "syntax_ok", "fix_stages", "n_correct", "avg_accuracy", "solved"]
 
     html_rows = []
     for row in rows:
         is_selected = "← selected" in row["strategy"]
         row_bg = "background:rgba(46,204,64,0.08)" if is_selected else ""
-        tds = "".join(
-            f'<td style="{td_style}">{row[k]}</td>' for k in col_keys
-        )
+        tds = "".join(f'<td style="{td_style}">{row[k]}</td>' for k in col_keys)
         html_rows.append(f'<tr style="{row_bg}">{tds}</tr>')
 
     ths = "".join(f'<th style="{th_style}">{h}</th>' for h in header)
@@ -513,9 +586,80 @@ def show_candidates(candidates, puzzle_idx):
         "</table>"
     )
 
+    # Per-candidate audit trail
+    for c in candidates:
+        cand_idx = c["idx"]
+        selected = c.get("selected", False)
+        fix_stages = c.get("syntax_fix_stages", [])
+        fix_tag = f" [{'+'.join(fix_stages)}]" if fix_stages else ""
+        prefix = "→ " if selected else ""
+        label = f"{prefix}Candidate {cand_idx} — {c['strategy']}{fix_tag}"
+        if selected:
+            label += " ← selected"
+
+        with st.expander(label, expanded=selected):
+            # Generation call: thinking + prompt + response
+            with st.expander("Generation prompt & response", expanded=False):
+                thinking = c.get("thinking", "")
+                if thinking and thinking.strip():
+                    st.markdown("**Thinking**")
+                    st.text_area(
+                        "thinking",
+                        value=thinking,
+                        height=180,
+                        disabled=True,
+                        label_visibility="collapsed",
+                        key=f"p{puzzle_idx}_c{cand_idx}_thinking",
+                    )
+
+                prompt = c.get("prompt", "")
+                if prompt:
+                    st.markdown("**Prompt**")
+                    st.text_area(
+                        "prompt",
+                        value=prompt,
+                        height=140,
+                        disabled=True,
+                        label_visibility="collapsed",
+                        key=f"p{puzzle_idx}_c{cand_idx}_prompt",
+                    )
+
+                response = c.get("response", "")
+                if response:
+                    st.markdown("**Response**")
+                    st.text_area(
+                        "response",
+                        value=response,
+                        height=140,
+                        disabled=True,
+                        label_visibility="collapsed",
+                        key=f"p{puzzle_idx}_c{cand_idx}_response",
+                    )
+
+            # Program transformation: raw → final
+            program_raw = c.get("program_raw", "")
+            program_final = c.get("program_final", "")
+            if program_raw:
+                col1, col2 = st.columns(2, gap="small")
+                with col1:
+                    st.caption("Raw program (before syntax fixes)")
+                    show_program(program_raw)
+                with col2:
+                    st.caption("Final program (after syntax fixes)")
+                    show_program(program_final)
+
+            # Syntax fix stages
+            for stage_info in c.get("syntax_fix_details", []):
+                show_syntax_fix_stage(stage_info, f"p{puzzle_idx}_c{cand_idx}")
+
 
 def show_refinements(refinements, examples, puzzle_idx):
-    """Render each refinement attempt as a collapsible expander."""
+    """
+    Render each refinement attempt as a collapsible expander.
+
+    * Includes syntax fix stage details (per-round before/after programs)
+      when the refinement triggered a rewrite before running Clingo.
+    """
     if not refinements:
         return
     st.subheader("Refinement Attempts")
@@ -554,6 +698,10 @@ def show_refinements(refinements, examples, puzzle_idx):
                     program, examples, all_errors,
                     f"p{puzzle_idx}_ref_{attempt}",
                 )
+
+            # Syntax fix stages applied to this refinement's program before verification
+            for stage_info in syntax_fixes:
+                show_syntax_fix_stage(stage_info, f"p{puzzle_idx}_ref{attempt}")
 
             st.markdown("**Training verification**")
             show_verification_grids(ref.get("train_verifications", []), examples)
@@ -696,7 +844,7 @@ show_program_with_facts(full_program, examples, all_init_errors, f"p{puzzle_idx}
 # Syntax agent (runs after assembly, before verification)
 # ---------------------------------------------------------------------------
 
-show_candidates(record.get("candidates", []), puzzle_idx)
+show_candidates(record.get("candidates", []), examples, puzzle_idx)
 
 show_syntax_agent(record.get("syntax_agent"), examples, puzzle_idx)
 
