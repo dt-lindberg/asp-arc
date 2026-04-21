@@ -4,7 +4,12 @@ import json
 import os
 import random
 
-from config import ARC_V1_TRAINING, ARC_V1_EVALUATION, ARC_V2_TRAINING, ARC_V2_EVALUATION
+from config import (
+    ARC_V1_TRAINING,
+    ARC_V1_EVALUATION,
+    ARC_V2_TRAINING,
+    ARC_V2_EVALUATION,
+)
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -41,7 +46,7 @@ def load_puzzle(puzzle_id, dataset="arc-v1-training"):
     return puzzle
 
 
-def get_puzzles(dataset="arc-v1-training", n=3, seed=42):
+def get_puzzles(dataset="arc-v1-training", n=3, seed=132):
     """Load N randomly sampled puzzles from a dataset.
 
     Args:
