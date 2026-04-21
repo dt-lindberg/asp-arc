@@ -1,0 +1,294 @@
+<context>
+You are an expert at solving ARC-AGI (Abstraction and Reasoning Corpus) puzzles using Answer Set Programming (ASP).
+
+ARC-AGI puzzles show input-output grid transformations. Each cell contains a color value (integer 0–9). The goal is to discover the hidden transformation rule from training examples and encode it as an ASP program.
+</context>
+
+<rules>
+- `input(row, col, color)` facts are injected automatically — do not define them.
+- `color(0..9)` facts are injected automatically — do not define them.
+- the output predicate is always `output(row, col, color)` — do not redefine it.
+- the final program must produce exactly one answer set, in which `output(row, col, color)` match the expected output exactly.
+</rules>
+
+Below are two fully worked examples.
+
+<example_1>
+<example_grid_1>
+Input:
+<diagram>
+0 7 7
+7 7 7
+0 7 7
+</diagram>
+
+Output:
+<diagram>
+0 0 0 0 7 7 0 7 7
+0 0 0 7 7 7 7 7 7
+0 0 0 0 7 7 0 7 7
+0 7 7 0 7 7 0 7 7
+7 7 7 7 7 7 7 7 7
+0 7 7 0 7 7 0 7 7
+0 0 0 0 7 7 0 7 7
+0 0 0 7 7 7 7 7 7
+0 0 0 0 7 7 0 7 7
+</diagram>
+</example_grid_1>
+
+<example_grid_2>
+Input:
+<diagram>
+4 0 4
+0 0 0
+0 4 0
+</diagram>
+
+Output:
+<diagram>
+4 0 4 0 0 0 4 0 4
+0 0 0 0 0 0 0 0 0
+0 4 0 0 0 0 0 4 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 4 0 4 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 4 0 0 0 0
+</diagram>
+</example_grid_2>
+
+<example_grid_3>
+Input:
+<diagram>
+0 0 0
+0 0 2
+2 0 2
+</diagram>
+
+Output:
+<diagram>
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 2
+0 0 0 0 0 0 2 0 2
+0 0 0 0 0 0 0 0 0
+0 0 2 0 0 0 0 0 2
+2 0 2 0 0 0 2 0 2
+</diagram>
+</example_grid_3>
+
+<example_grid_4>
+Input:
+<diagram>
+6 6 0
+6 0 0
+0 6 6
+</diagram>
+
+Output:
+<diagram>
+6 6 0 6 6 0 0 0 0
+6 0 0 6 0 0 0 0 0
+0 6 6 0 6 6 0 0 0
+6 6 0 0 0 0 0 0 0
+6 0 0 0 0 0 0 0 0
+0 6 6 0 0 0 0 0 0
+0 0 0 6 6 0 6 6 0
+0 0 0 6 0 0 6 0 0
+0 0 0 0 6 6 0 6 6
+</diagram>
+</example_grid_4>
+
+<example_grid_5>
+Input:
+<diagram>
+2 2 2
+0 0 0
+0 2 2
+</diagram>
+
+Output:
+<diagram>
+2 2 2 2 2 2 2 2 2
+0 0 0 0 0 0 0 0 0
+0 2 2 0 2 2 0 2 2
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0
+0 0 0 2 2 2 2 2 2
+0 0 0 0 0 0 0 0 0
+0 0 0 0 2 2 0 2 2
+</diagram>
+</example_grid_5>
+
+<transformation>
+The input is treated as a tile map. The output is NxM times larger than the input (where the input is N rows x M cols). Each input cell at (BR, BC) with a non-zero value causes a copy of the full input to be placed in the corresponding NxM block of the output (at rows BR*N .. BR*N+N-1, cols BC*M .. BC*M+M-1). Each input cell with value 0 produces an all-zero block at that position.
+</transformation>
+
+<asp>
+% Count distinct row/col indices — equals grid dimensions for 0-indexed inputs
+n_rows(N) :- N = #count{R : input(R, _, _)}.
+n_cols(N) :- N = #count{C : input(_, C, _)}.
+
+% Output is NR*NR rows and NC*NC cols (input tiled by itself)
+output_cell(R, C) :-
+    input(BR, BC, _), input(DR, DC, _),
+    n_rows(NR), n_cols(NC),
+    R = BR*NR + DR, C = BC*NC + DC.
+
+1 { output(R, C, Color) : color(Color) } 1 :- output_cell(R, C).
+
+% Non-zero block: the sub-cell must equal the input value at the relative position
+:- input(BR, BC, V), V != 0,
+   input(DR, DC, TileColor),
+   n_rows(NR), n_cols(NC),
+   R = BR*NR + DR, C = BC*NC + DC,
+   output(R, C, ActualColor), ActualColor != TileColor.
+
+% Zero block: every sub-cell must be 0
+:- input(BR, BC, 0),
+   input(DR, DC, _),
+   n_rows(NR), n_cols(NC),
+   R = BR*NR + DR, C = BC*NC + DC,
+   output(R, C, ActualColor), ActualColor != 0.
+<asp>
+</example_1>
+
+
+<example_2>
+<example_grid_1>
+Input:
+<diagram>
+0 0 0 0 0 0
+0 0 3 0 0 0
+0 3 0 3 0 0
+0 0 3 0 3 0
+0 0 0 3 0 0
+0 0 0 0 0 0
+</diagram>
+
+Output:
+<diagram>
+0 0 0 0 0 0
+0 0 3 0 0 0
+0 3 4 3 0 0
+0 0 3 4 3 0
+0 0 0 3 0 0
+0 0 0 0 0 0
+</diagram>
+</example_grid_1>
+
+<example_grid_2>
+Input:
+<diagram>
+0 0 0 0 0 0 0 0 0 0
+0 0 3 0 3 0 0 0 0 0
+0 0 0 3 0 3 0 0 0 0
+0 0 3 0 0 0 3 0 0 0
+0 0 0 0 0 3 0 3 0 0
+0 0 0 3 0 3 3 0 0 0
+0 0 3 3 3 0 0 0 0 0
+0 0 0 3 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0
+</diagram>
+
+Output:
+<diagram>
+0 0 0 0 0 0 0 0 0 0
+0 0 3 0 3 0 0 0 0 0
+0 0 0 3 0 3 0 0 0 0
+0 0 3 0 0 0 3 0 0 0
+0 0 0 0 0 3 4 3 0 0
+0 0 0 3 0 3 3 0 0 0
+0 0 3 3 3 0 0 0 0 0
+0 0 0 3 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0
+</diagram>
+</example_grid_2>
+
+<example_grid_3>
+Input:
+<diagram>
+0 0 0 0 0 3 0 0 0 0
+0 0 0 0 3 0 0 0 0 0
+0 3 3 0 3 3 0 3 0 0
+3 0 0 3 0 0 3 0 3 0
+0 0 0 3 0 0 3 3 0 0
+0 0 0 3 0 0 3 0 0 0
+0 0 0 3 0 0 3 0 0 0
+0 0 0 0 3 3 0 3 0 0
+0 0 0 0 0 0 0 0 3 0
+0 0 0 0 0 0 0 0 0 0
+</diagram>
+
+Output:
+<diagram>
+0 0 0 0 0 3 0 0 0 0
+0 0 0 0 3 0 0 0 0 0
+0 3 3 0 3 3 0 3 0 0
+3 0 0 3 4 4 3 4 3 0
+0 0 0 3 4 4 3 3 0 0
+0 0 0 3 4 4 3 0 0 0
+0 0 0 3 4 4 3 0 0 0
+0 0 0 0 3 3 0 3 0 0
+0 0 0 0 0 0 0 0 3 0
+0 0 0 0 0 0 0 0 0 0
+</diagram>
+</example_grid_3>
+
+<transformation>
+The output is the same size as the input. Color-3 cells are unchanged. Non-3 cells (value 0) that are enclosed by color-3 walls — i.e., cannot reach the grid boundary via 4-connected movement through non-3 cells — are filled with color 4. All other non-3 cells remain 0.
+</transformation>
+
+<asp>
+% Output has the same dimensions as the input
+output_cell(R, C) :- input(R, C, _).
+1 { output(R, C, Color) : color(Color) } 1 :- output_cell(R, C).
+
+% Grid boundary coordinates
+min_row(R) :- R = #min{Row : input(Row, _, _)}.
+max_row(R) :- R = #max{Row : input(Row, _, _)}.
+min_col(C) :- C = #min{Col : input(_, Col, _)}.
+max_col(C) :- C = #max{Col : input(_, Col, _)}.
+
+% 4-connected adjacency offsets
+delta(0,1). delta(0,-1). delta(1,0). delta(-1,0).
+
+% Non-3 cells on the grid boundary are reachable from outside
+outside(R, C) :- input(R, C, V), V != 3, min_row(Rmin), R = Rmin.
+outside(R, C) :- input(R, C, V), V != 3, max_row(Rmax), R = Rmax.
+outside(R, C) :- input(R, C, V), V != 3, min_col(Cmin), C = Cmin.
+outside(R, C) :- input(R, C, V), V != 3, max_col(Cmax), C = Cmax.
+
+% Flood-fill outward through non-3 cells
+outside(R2, C2) :-
+    outside(R1, C1), delta(DR, DC),
+    R2 = R1+DR, C2 = C1+DC,
+    input(R2, C2, V), V != 3.
+
+% Color-3 cells stay 3
+:- input(R, C, 3), output(R, C, Color), Color != 3.
+
+% Outside non-3 cells stay 0
+:- outside(R, C), output(R, C, Color), Color != 0.
+
+% Interior non-3 cells (enclosed by 3s, not reachable from boundary) become 4
+:- input(R, C, 0), not outside(R, C), output(R, C, Color), Color != 4.
+<asp>
+</example_2>
+
+<task>
+Now it is your turn to solve the following ARC-AGI puzzle. Follow the same approach:
+1. Study the training examples to identify the transformation rule.
+2. Write a complete ASP program encoding that rule.
+
+<examples>
+==EXAMPLES==
+</examples>
+
+Output the complete ASP program in a single <asp>...</asp> block. Make sure your program adheres to the **rules** before submitting them.
