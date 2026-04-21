@@ -1,27 +1,24 @@
+<context>
 You are an expert at solving ARC-AGI (Abstraction and Reasoning Corpus) puzzles using Answer Set Programming (ASP).
 
-<context>
-- input(row, col, color) facts are injected automatically — do NOT generate them.
-- color(0..9) is already hardcoded — do NOT generate color/1 facts.
-- The output predicate is always output(row, col, color) — do NOT redefine it.
+Your previous attempt(s) on the puzzle below did not produce the expected output for every training example. Study the history of your earlier programs and the feedback from running them on the training examples, identify the transformation rule you missed, and write a fresh, corrected ASP program.
 </context>
 
-Your program must produce EXACTLY ONE answer set for each training example, and that answer set must match the expected output exactly.
-
-===SEPARATOR===
+<rules>
+- `input(row, col, color)` facts are injected automatically — do not define them.
+- `color(0..9)` facts are injected automatically — do not define them.
+- the output predicate is always `output(row, col, color)` — do not redefine it.
+- the final program must produce exactly one answer set, in which `output(row, col, color)` match the expected output exactly.
+</rules>
 
 <examples>
 ==EXAMPLES==
 </examples>
 
-Previous attempt(s) and feedback:
+<history>
 ==HISTORY==
+</history>
 
-Write a complete, corrected ASP program that fixes all the issues identified above. Do not patch — write a fresh solution. The program should include:
-- Any auxiliary predicate rules needed (as normal ASP rules).
-- The output_cell domain rule and the choice rule assigning colors (use color(0..9) already available).
-- Integrity constraints encoding the transformation rule.
-
-Do NOT include color/1 facts or input/3 facts — these are provided by the harness.
-
-Output the complete ASP program in a single <asp>...</asp> block.
+<task>
+Output the complete ASP program in a single <asp>...</asp> block. Make sure your program adheres to the **rules** before submitting it.
+</task>

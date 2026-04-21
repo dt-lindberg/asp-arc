@@ -141,44 +141,55 @@ def verify_on_training_examples(program, train_examples, run_clingo):
 
 
 def build_train_feedback(train_results):
-    """Build a human-readable feedback string from training verification results.
+    """
+    Build a feedback string from training verification results.
 
-    Used as <FEEDBACK> in the reattempt prompt.
+    * Per-example blocks use the same tag conventions as the initial-prompt
+      few-shots: grids wrapped in <diagram>, Clingo errors in <clingo_error>.
+    * Consumed verbatim inside the <feedback>...</feedback> wrapper of each
+      attempt in the reattempt prompt.
     """
     parts = []
     for res in train_results:
         i = res["example_idx"]
         status = res["status"]
+        tag = f"example_grid_{i + 1}"
 
         if res["correct"]:
-            parts.append(f"Example #{i + 1}: CORRECT (exact match)")
+            parts.append(f"<{tag}>\nCORRECT (exact match)\n</{tag}>")
             continue
 
-        lines = [f"Example #{i + 1}: INCORRECT"]
+        lines = ["INCORRECT."]
 
         if status == "clingo_error":
-            lines.append(f"  Clingo error:\n{res['clingo_errors']}")
+            lines.append(
+                f"Clingo raised a parse/ground error:\n"
+                f"<clingo_error>\n{res['clingo_errors']}\n</clingo_error>"
+            )
 
         elif status == "unsatisfiable":
-            lines.append("  Program is UNSATISFIABLE — 0 answer sets produced.")
+            lines.append("Program is UNSATISFIABLE — 0 answer sets produced.")
 
         elif status == "underconstrained":
             n = res["n_answer_sets"]
             lines.append(
-                f"  Program is UNDERCONSTRAINED — {n} answer sets produced (need exactly 1)."
+                f"Program is UNDERCONSTRAINED — {n} answer sets produced (need exactly 1)."
             )
 
         elif status in ("wrong_values", "shape_mismatch"):
             diff = res.get("diff", "(no diff available)")
             acc = res.get("accuracy", 0.0)
             lines.append(
-                "  One answer set found, but it does not match the expected output.\n"
-                "  Diff (prediction/expected for wrong cells, correct cells shown as-is):\n"
-                + diff
+                f"One answer set found, but it does not match the expected output. "
+                f"Accuracy: {acc:.2f}"
             )
-            lines.append(f"  Accuracy: {acc:.2f}")
+            lines.append(
+                "Diff (predicted/expected for mismatched cells, correct cells shown as-is):\n"
+                f"<diagram>\n{diff}\n</diagram>"
+            )
 
-        parts.append("\n".join(lines))
+        body = "\n".join(lines)
+        parts.append(f"<{tag}>\n{body}\n</{tag}>")
 
     return "\n\n".join(parts)
 

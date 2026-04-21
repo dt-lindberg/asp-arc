@@ -38,25 +38,30 @@ def format_grid(grid):
 
 
 def format_examples_for_prompt(examples):
-    """Format ARC training examples as a block of labelled diagram pairs."""
+    """Format ARC training examples as <example_grid_N> blocks of input/output diagrams."""
     parts = []
     for i, ex in enumerate(examples, start=1):
         inp = format_grid(ex["input"])
         out = format_grid(ex["output"])
         parts.append(
-            f"Example #{i}\n"
+            f"<example_grid_{i}>\n"
             f"Input:\n<diagram>\n{inp}\n</diagram>\n\n"
-            f"Output:\n<diagram>\n{out}\n</diagram>"
+            f"Output:\n<diagram>\n{out}\n</diagram>\n"
+            f"</example_grid_{i}>"
         )
     return "\n\n".join(parts)
 
 
 def format_test_for_prompt(test_cases):
-    """Format ARC test inputs as labelled diagrams (no output given)."""
+    """Format ARC test inputs as <example_grid_N> blocks (no output given)."""
     parts = []
     for i, t in enumerate(test_cases, start=1):
         inp = format_grid(t["input"])
-        parts.append(f"Test #{i}\nInput:\n<diagram>\n{inp}\n</diagram>")
+        parts.append(
+            f"<example_grid_{i}>\n"
+            f"Input:\n<diagram>\n{inp}\n</diagram>\n"
+            f"</example_grid_{i}>"
+        )
     return "\n\n".join(parts)
 
 

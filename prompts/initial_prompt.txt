@@ -282,6 +282,8 @@ outside(R2, C2) :-
 </asp>
 </example_2>
 
+===SEPARATOR===
+
 <task>
 Now it is your turn to solve the following ARC-AGI puzzle. Follow the same approach:
 1. Study the training examples to identify the transformation rule.
@@ -291,4 +293,5 @@ Now it is your turn to solve the following ARC-AGI puzzle. Follow the same appro
 ==EXAMPLES==
 </examples>
 
-Output the complete ASP program in a single <asp>...</asp> block. Make sure your program adheres to the **rules** before submitting them.
+Output the complete ASP program in a single <asp>...</asp> block. Make sure your program adheres to the **rules** before submitting it.
+</task>
