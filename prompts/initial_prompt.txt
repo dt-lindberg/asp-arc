@@ -154,7 +154,7 @@ output_cell(R, C) :-
    n_rows(NR), n_cols(NC),
    R = BR*NR + DR, C = BC*NC + DC,
    output(R, C, ActualColor), ActualColor != 0.
-<asp>
+</asp>
 </example_1>
 
 
@@ -279,7 +279,7 @@ outside(R2, C2) :-
 
 % Interior non-3 cells (enclosed by 3s, not reachable from boundary) become 4
 :- input(R, C, 0), not outside(R, C), output(R, C, Color), Color != 4.
-<asp>
+</asp>
 </example_2>
 
 <task>
