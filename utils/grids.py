@@ -1,33 +1,36 @@
-"""Utility functions for the ARC-ASP pipeline."""
+"""Utility functions.
+
+Index:
+    * extract_code_blocks,
+    * format_grid,
+    * format_examples_for_prompt,
+    * format_test_for_prompt,
+    * grid_to_input_facts,
+    * answer_set_to_grid,
+    * grid_diff
+"""
 
 import re
 
 
-# ---------------------------------------------------------------------------
-# Code extraction
-# ---------------------------------------------------------------------------
-
 def extract_code_blocks(response):
-    """Extract content from triple-tick code blocks (```asp, ```prolog, etc.).
-
-    * Returns the first complete code block found.
-    * Falls back to content after an unclosed opening fence.
-    * Returns the original response unchanged if no fences found.
     """
-    match = re.search(r"```[^\n]*\n(.*?)```", response, re.DOTALL)
+    Extract the first ASP program from an <asp>...</asp> block in the response.
+
+    * Matches a complete <asp>...</asp> block.
+    * Falls back to content after an unclosed <asp> tag if no closing tag is found.
+    * Returns the original response unchanged if no <asp> tag is present.
+    """
+    match = re.search(r"<asp>\s*\n?(.*?)</asp>", response, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
 
-    match = re.search(r"```[^\n]*\n(.*)", response, re.DOTALL)
+    match = re.search(r"<asp>\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
 
     return response
 
-
-# ---------------------------------------------------------------------------
-# Grid formatting
-# ---------------------------------------------------------------------------
 
 def format_grid(grid):
     """Format a 2D list as space-separated digit rows."""
@@ -42,8 +45,8 @@ def format_examples_for_prompt(examples):
         out = format_grid(ex["output"])
         parts.append(
             f"Example #{i}\n"
-            f"Input:\n<Diagram>\n{inp}\n</Diagram>\n\n"
-            f"Output:\n<Diagram>\n{out}\n</Diagram>"
+            f"Input:\n<diagram>\n{inp}\n</diagram>\n\n"
+            f"Output:\n<diagram>\n{out}\n</diagram>"
         )
     return "\n\n".join(parts)
 
@@ -53,23 +56,19 @@ def format_test_for_prompt(test_cases):
     parts = []
     for i, t in enumerate(test_cases, start=1):
         inp = format_grid(t["input"])
-        parts.append(f"Test #{i}\nInput:\n<Diagram>\n{inp}\n</Diagram>")
+        parts.append(f"Test #{i}\nInput:\n<diagram>\n{inp}\n</diagram>")
     return "\n\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# ASP fact generation
-# ---------------------------------------------------------------------------
-
 def grid_to_input_facts(grid):
     """Convert a 2D grid to ASP input(Row, Col, Color) facts."""
-    facts = [f"input({r},{c},{color})." for r, row in enumerate(grid) for c, color in enumerate(row)]
+    facts = [
+        f"input({r},{c},{color})."
+        for r, row in enumerate(grid)
+        for c, color in enumerate(row)
+    ]
     return "\n".join(facts)
 
-
-# ---------------------------------------------------------------------------
-# Answer-set → grid reconstruction
-# ---------------------------------------------------------------------------
 
 def answer_set_to_grid(atoms, n_rows, n_cols):
     """Reconstruct a grid from output(Row, Col, Color) atoms.
@@ -86,10 +85,6 @@ def answer_set_to_grid(atoms, n_rows, n_cols):
                 grid[r][c] = color
     return grid
 
-
-# ---------------------------------------------------------------------------
-# Grid diff
-# ---------------------------------------------------------------------------
 
 def grid_diff(predicted, expected):
     """Compare two grids and produce a visual diff.

@@ -24,7 +24,7 @@ LOG_LEVEL = "debug"
 LOG_FORMAT = (
     "%(asctime)s [%(levelname)s] %(name)s - %(funcName)s:%(lineno)d > %(message)s"
 )
-ALLOWED_LOGGERS = ("__main__", "pipeline", "arc_loader", "eval", "vllm_engine")
+ALLOWED_LOGGERS = ("__main__", "utils", "agent")
 
 # Paths to ARC datasets
 ARC_V1_TRAINING = "arc-puzzles/ARC-AGI/data/training"

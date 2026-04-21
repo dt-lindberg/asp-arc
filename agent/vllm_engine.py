@@ -4,7 +4,7 @@ import time
 
 from huggingface_hub import snapshot_download
 
-from logger import setup_logging, get_logger
+from utils.logger import setup_logging, get_logger
 from agent.utils import split_thinking
 from config.config import SEED, LOG_LEVEL
 from config.config_agent import (

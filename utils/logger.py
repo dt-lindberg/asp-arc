@@ -5,7 +5,7 @@ import sys
 import os
 import time
 
-from config import LOG_FORMAT, ALLOWED_LOGGERS
+from config.config import LOG_FORMAT, ALLOWED_LOGGERS
 
 # Default log directory; override with LOG_DIR env var
 _LOG_DIR = os.getenv("LOG_DIR", "logs")

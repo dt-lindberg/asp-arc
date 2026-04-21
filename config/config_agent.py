@@ -28,7 +28,7 @@ TOP_P = 0.8
 TOP_K = 20
 MIN_P = 0.01
 PRESENCE_PENALTY = 0.0
-REPETITION_PENALT = 1.0
+REPETITION_PENALTY = 1.0
 
 
 # MAX_THINK_TOKENS = 4_000
@@ -36,9 +36,6 @@ REPETITION_PENALT = 1.0
 # THINK_END_TOKEN_ID = 151668
 
 PROMPT_PATHS = {
-    "analysis": "prompts/1_analysis.txt",
-    "predicates": "prompts/2_predicates.txt",
-    "choice_rules": "prompts/3_choice_rules.txt",
-    "constraints": "prompts/4_constraints.txt",
-    "reattempt": "prompts/5_reattempt.txt",
+    "initial": "prompts/initial_prompt.txt",
+    "reattempt": "prompts/reattempt.txt",
 }
