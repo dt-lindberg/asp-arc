@@ -9,7 +9,7 @@ Use this skill to examine a completed asp-arc pipeline run.
 
 ## Run output location
 
-All run outputs are in `src/outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHMMSS` timestamp.
+Each run produces a directory `src/audit/<run_id>/` containing one JSON file per puzzle: `src/audit/<run_id>/<puzzle_id>.json` where `run_id` is a `YYYYMMDD_HHMMSS` timestamp and `puzzle_id` is the ARC hex ID (e.g. `007bbfb7`).
 
 ## JSON structure per puzzle
 
@@ -60,8 +60,10 @@ All run outputs are in `src/outputs/<run_id>.json` where `run_id` is a `YYYYMMDD
 ```python
 import json
 
-with open("src/outputs/<run_id>.json") as f:
-    records = json.load(f)
+import glob
+records = [
+    json.load(open(p)) for p in sorted(glob.glob("src/audit/<run_id>/*.json"))
+]
 
 for r in records:
     print(r["puzzle_id"], "→", "SOLVED" if r["final_correct"] else "UNSOLVED")

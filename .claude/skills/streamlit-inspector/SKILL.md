@@ -13,7 +13,7 @@ From the **project root**:
 streamlit run streamlit-interface/app.py
 ```
 
-The app discovers run JSON files automatically — it searches `src/outputs/*.json` first, then any `YYYYMMDD_HHMMSS.json` files in `src/`.
+The app discovers runs automatically — it scans `src/audit/` for run directories and loads all per-puzzle `*.json` files within the selected run.
 
 ## File layout
 

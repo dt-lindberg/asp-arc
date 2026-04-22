@@ -2,9 +2,12 @@
 Session: per-puzzle append-only record of everything the agent did.
 
 * Owns the initial attempt, the refinement history, and the final verdict.
-* Serializes to the same JSON shape as the pre-refactor `_make_record` in main.py
-  so the Streamlit inspector and `inspect-run` skill stay compatible.
+* If constructed with an audit_path, flushes its state to disk atomically
+  (tmp-file + rename) after every record_* call so results survive crashes.
 """
+
+import json
+import os
 
 from utils.eval import build_train_feedback, all_correct
 
@@ -14,11 +17,23 @@ class Session:
         self,
         puzzle,
         run_id,
+        audit_path=None,
     ):
         self.puzzle = puzzle
         self.run_id = run_id
+        self._audit_path = audit_path
         self.initial = None
         self.refinements = []
+
+    def _flush(self):
+        """Write to temporary directory to guarantee that we don't loose existing
+        data and replace it with partial write, rename once writing is finished."""
+        if self._audit_path is None:
+            return
+        tmp = self._audit_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        os.replace(tmp, self._audit_path)
 
     def record_initial(
         self,
@@ -36,6 +51,7 @@ class Session:
             "train_verifications": train_results,
             "all_train_correct": all_correct(train_results),
         }
+        self._flush()
 
     def record_refinement(
         self,
@@ -57,6 +73,7 @@ class Session:
                 "all_train_correct": all_correct(train_results),
             }
         )
+        self._flush()
 
     @property
     def all_train_correct(self):

@@ -6,11 +6,11 @@ Baseline orchestrator.
   refinement loop for puzzles that don't yet pass.
 * No prompting pipeline, no cache, no tool use — the Agent only generates
   ASP text; Clingo is invoked here.
-* Per-puzzle records are serialized as JSON under outputs/<run_id>.json.
+* Per-puzzle records are written atomically to audit/<run_id>/<puzzle_id>.json
+  after each attempt so results survive mid-run crashes.
 """
 
 import argparse
-import json
 import os
 import time
 
@@ -40,20 +40,17 @@ def main(args):
     logger.info(f"Loaded {len(puzzles)} puzzle(s)")
     logger.debug(f"IDs: {[p['id'] for p in puzzles]}")
 
-    # Initialize the agent, and one session per puzzle
+    # Create per-run audit directory; sessions write themselves there incrementally
+    audit_dir = os.path.join("audit", run_id)
+    os.makedirs(audit_dir, exist_ok=True)
+
     agent = Agent()
-    sessions = [Session(p, run_id) for p in puzzles]
+    sessions = [
+        Session(p, run_id, audit_path=os.path.join(audit_dir, f"{p['id']}.json"))
+        for p in puzzles
+    ]
 
-    # Wrap around the main execution loop. In case of failures, save partial results
-    try:
-        _run(agent, puzzles, sessions)
-    except Exception as e:
-        logger.error(f"Run crashed: {e}", exc_info=True)
-        logger.info("Saving partial results before exiting...")
-        _save_results(sessions, run_id + "_partial")
-        raise
-
-    _save_results(sessions, run_id)
+    _run(agent, puzzles, sessions)
 
     n_final = sum(s.final_correct for s in sessions)
     logger.info(
@@ -116,14 +113,6 @@ def _run(agent, puzzles, sessions):
                 f"  [{puzzle['id']}] attempt {attempt}: {n_correct}/{len(train_results)} correct"
                 + (" — SOLVED" if is_correct else "")
             )
-
-
-def _save_results(sessions, run_id):
-    os.makedirs("outputs", exist_ok=True)
-    out_path = os.path.join("outputs", f"{run_id}.json")
-    with open(out_path, "w") as f:
-        json.dump([s.to_dict() for s in sessions], f, indent=2)
-    logger.info(f"Results saved to {out_path}")
 
 
 if __name__ == "__main__":

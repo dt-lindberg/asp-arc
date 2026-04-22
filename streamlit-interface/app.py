@@ -357,44 +357,50 @@ def show_refinements(refinements, examples, puzzle_idx):
 # ---------------------------------------------------------------------------
 
 
-def _find_run_files():
-    """Collect run JSON files from src/outputs/ (timestamp-named files)."""
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    src_dir = os.path.join(root, "src")
-    files = []
+def _find_run_dirs():
+    """Return audit run directories from src/audit/, newest first."""
+    src_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+    audit_dir = os.path.join(src_dir, "audit")
+    if not os.path.isdir(audit_dir):
+        return []
+    dirs = [
+        os.path.join(audit_dir, d)
+        for d in os.listdir(audit_dir)
+        if os.path.isdir(os.path.join(audit_dir, d))
+    ]
+    return sorted(dirs, key=os.path.getmtime, reverse=True)
 
-    outputs_dir = os.path.join(src_dir, "outputs")
-    if os.path.isdir(outputs_dir):
-        files.extend(glob.glob(os.path.join(outputs_dir, "*.json")))
 
-    for f in glob.glob(os.path.join(src_dir, "*.json")):
-        if re.match(r"\d{8}_\d{6}\.json$", os.path.basename(f)):
-            files.append(f)
-
-    return sorted(set(files), key=os.path.getmtime, reverse=True)
+def _load_run(run_dir):
+    """Load all per-puzzle JSON files from a run directory."""
+    paths = sorted(glob.glob(os.path.join(run_dir, "*.json")))
+    records = []
+    for p in paths:
+        with open(p, encoding="utf-8") as f:
+            records.append(json.load(f))
+    return records
 
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
-run_files = _find_run_files()
+run_dirs = _find_run_dirs()
 
 with st.sidebar:
     st.header("Run")
-    if not run_files:
-        st.warning("No run JSON files found in outputs/ or project root.")
+    if not run_dirs:
+        st.warning("No runs found in src/audit/.")
         st.stop()
 
-    selected_file = st.selectbox(
-        "Run file", options=run_files, format_func=os.path.basename
+    selected_run = st.selectbox(
+        "Run", options=run_dirs, format_func=os.path.basename
     )
 
     try:
-        with open(selected_file) as f:
-            records = json.load(f)
+        records = _load_run(selected_run)
     except Exception as e:
-        st.error(f"Could not load {selected_file}: {e}")
+        st.error(f"Could not load {selected_run}: {e}")
         st.stop()
 
     n_solved = sum(1 for r in records if r.get("final_correct"))
