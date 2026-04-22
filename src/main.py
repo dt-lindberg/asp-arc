@@ -138,5 +138,8 @@ if __name__ == "__main__":
         default=None,
         help="Specific puzzle IDs to run (overrides --num)",
     )
+    parser.add_argument(
+        "--seed", default=SEED, type=int, help="Seed for everything, including vLLM"
+    )
     args = parser.parse_args()
     main(args)
