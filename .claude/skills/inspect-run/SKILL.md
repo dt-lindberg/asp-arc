@@ -9,7 +9,7 @@ Use this skill to examine a completed asp-arc pipeline run.
 
 ## Run output location
 
-All run outputs are in `outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHMMSS` timestamp.
+All run outputs are in `src/outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHMMSS` timestamp.
 
 ## JSON structure per puzzle
 
@@ -60,7 +60,7 @@ All run outputs are in `outputs/<run_id>.json` where `run_id` is a `YYYYMMDD_HHM
 ```python
 import json
 
-with open("outputs/<run_id>.json") as f:
+with open("src/outputs/<run_id>.json") as f:
     records = json.load(f)
 
 for r in records:

@@ -6,7 +6,7 @@ Streamlit inspector for asp-arc pipeline runs.
   per-example verification results, and refinement history
 
 Usage (from project root):
-    streamlit run eval/app.py
+    streamlit run streamlit-interface/app.py
 """
 
 import glob
@@ -17,8 +17,8 @@ import sys
 
 import streamlit as st
 
-# Project root on path so arc_loader, config etc. are importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# src/ on path so utils, config etc. are importable
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 st.set_page_config(page_title="ARC-ASP Inspector", layout="wide")
 
@@ -358,16 +358,16 @@ def show_refinements(refinements, examples, puzzle_idx):
 
 
 def _find_run_files():
-    """Collect run JSON files from outputs/ and root (timestamp-named files)."""
+    """Collect run JSON files from src/outputs/ (timestamp-named files)."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src_dir = os.path.join(root, "src")
     files = []
 
-    outputs_dir = os.path.join(root, "outputs")
+    outputs_dir = os.path.join(src_dir, "outputs")
     if os.path.isdir(outputs_dir):
         files.extend(glob.glob(os.path.join(outputs_dir, "*.json")))
 
-    # Root-level timestamp files from early runs before outputs/ existed
-    for f in glob.glob(os.path.join(root, "*.json")):
+    for f in glob.glob(os.path.join(src_dir, "*.json")):
         if re.match(r"\d{8}_\d{6}\.json$", os.path.basename(f)):
             files.append(f)
 
@@ -435,7 +435,7 @@ st.caption(
 
 # Load the original puzzle to get input grids for visualisation
 try:
-    from arc_loader import load_puzzle
+    from utils.arc_loader import load_puzzle
     puzzle = load_puzzle(puzzle_id, dataset)
     examples = puzzle["train"]
     test_examples = puzzle.get("test", [])

@@ -13,7 +13,7 @@ From the **project root**:
 streamlit run streamlit-interface/app.py
 ```
 
-The app discovers run JSON files automatically — it searches `outputs/*.json` first, then any `YYYYMMDD_HHMMSS.json` files in the project root (early runs saved before the `outputs/` dir existed).
+The app discovers run JSON files automatically — it searches `src/outputs/*.json` first, then any `YYYYMMDD_HHMMSS.json` files in `src/`.
 
 ## File layout
 
@@ -23,7 +23,7 @@ streamlit-interface/
   __init__.py
 ```
 
-`streamlit-interface/app.py` imports from the project root (`arc_loader`, `config`) via `sys.path` manipulation — no install step needed.
+`streamlit-interface/app.py` imports from `src/` (`utils.arc_loader`, `config`) via `sys.path` manipulation — no install step needed.
 
 ## What the app shows
 

@@ -6,10 +6,10 @@
 #SBATCH --gpus=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --chdir=/home/dlindberg/Projects/asp-arc
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc/src
 #SBATCH --output=outputs/slurm_output_%A.out
 
-# NOTE: Before running this job for the first time, make sure the venv exists:
+# NOTE: Before running this job for the first time, make sure the venv exists
 
 module purge
 module load 2025
@@ -18,12 +18,11 @@ module load Python/3.13.5-GCCcore-14.3.0
 
 mkdir -p outputs caches logs
 
-source .venv/bin/activate
+source ../.venv/bin/activate
 
 python3 -m main \
     --dataset arc-v1-training \
-    --num 3 \
-    --engine qwen36-35B
+    --num 3
 
 echo ""
 echo "Job complete."

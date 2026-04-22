@@ -27,7 +27,7 @@ python3 -m pip install --upgrade pip
 
 echo ""
 echo "=== [2/4] Install vLLM 0.19+ and huggingface_hub ==="
-pip install --no-cache-dir -r requirements_vllm_qwen36.txt
+pip install --no-cache-dir -r src/requirements_vllm_qwen36.txt
 
 echo ""
 echo "Installed vLLM version:"
@@ -37,7 +37,7 @@ echo ""
 echo "=== [3/4] Install remaining pipeline deps (clingo et al.) ==="
 pip install setuptools wheel scikit-build
 export CMAKE_ARGS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
-pip install --no-deps --no-build-isolation -r requirements.txt
+pip install --no-deps --no-build-isolation -r src/requirements_clingo_etal.txt
 
 echo ""
 echo "=== [4/4] Pre-download $REPO_ID safetensors ==="
