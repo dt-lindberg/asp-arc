@@ -18,9 +18,9 @@ LANGUAGE_MODEL_ONLY = True
 # │ TOP_K                       │ vocab truncation to top-k before sampling        │
 # │ MIN_P                       │ min token probability relative to top token      │
 # └─────────────────────────────┴──────────────────────────────────────────────────┘
-MAX_TOKENS = 4_000
-MAX_MODEL_LEN = 32_000
-MAX_NUM_BATCHED_TOKENS = 2_048
+MAX_TOKENS = 81_920
+MAX_MODEL_LEN = 94_000
+MAX_NUM_BATCHED_TOKENS = 8192
 MAX_NUM_SEQS = 10
 TEMPERATURE = 0.7
 GPU_MEMORY_UTILIZATION = 0.95
@@ -29,11 +29,6 @@ TOP_K = 20
 MIN_P = 0.01
 PRESENCE_PENALTY = 0.0
 REPETITION_PENALTY = 1.0
-
-
-# MAX_THINK_TOKENS = 4_000
-# THINK_START_TOKEN_ID = 151667
-# THINK_END_TOKEN_ID = 151668
 
 PROMPT_PATHS = {
     "initial": "prompts/initial_prompt.txt",
