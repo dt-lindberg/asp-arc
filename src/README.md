@@ -7,5 +7,6 @@ This setup intends to be a baseline for solving ARC-AGI puzzles with Qwen-3.6-35
 * config/         defines all config values             .
 * prompts/        all prompt-templates                  .
 * utils/          general collection of helper code     .
+  * session.py    append-only record of what happens    .
 ```
 
