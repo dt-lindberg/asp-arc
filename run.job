@@ -23,7 +23,7 @@ source ../.venv/bin/activate
 python3 -m main \
     --dataset arc-v1-training \
     --num 3 \
-    --seed 913
+    --seed 1001
 
 echo ""
 echo "Job complete."
