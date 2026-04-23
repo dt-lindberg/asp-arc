@@ -40,6 +40,23 @@ def verify_on_training_examples(program, train_examples, run_clingo):
     Returns:
         list of result dicts, one per training example.
     """
+    if not program or not program.strip():
+        logger.warning("Program is empty — skipping Clingo verification")
+        return [
+            {
+                "example_idx": i,
+                "status": "clingo_error",
+                "n_answer_sets": 0,
+                "clingo_errors": "Program is empty (model generated no code)",
+                "correct": False,
+                "diff": None,
+                "accuracy": 0.0,
+                "grid_predicted": None,
+                "grid_expected": ex["output"],
+            }
+            for i, ex in enumerate(train_examples)
+        ]
+
     # Syntax check on the bare program, avoids running Clingo N times for the
     # same parse error, and gives clean error messages without line-number offsets
     # introduced by the injected input facts.

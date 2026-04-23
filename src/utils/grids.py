@@ -15,18 +15,29 @@ import re
 
 def extract_code_blocks(response):
     """
-    Extract the first ASP program from an <asp>...</asp> block in the response.
+    Extract the first ASP program from the response.
 
-    * Matches a complete <asp>...</asp> block.
-    * Falls back to content after an unclosed <asp> tag if no closing tag is found.
-    * Returns the original response unchanged if no <asp> tag is present.
+    Tries formats in order, using the first non-empty result:
+    1. <asp>...</asp> block
+    2. ```asp ... ``` block
+    3. Unclosed <asp> tag (rest of response)
+    4. Unclosed ```asp (rest of response)
+    5. Full response as fallback
     """
     match = re.search(r"<asp>\s*\n?(.*?)</asp>", response, re.DOTALL | re.IGNORECASE)
-    if match:
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+
+    match = re.search(r"```asp\s*\n?(.*?)```", response, re.DOTALL | re.IGNORECASE)
+    if match and match.group(1).strip():
         return match.group(1).strip()
 
     match = re.search(r"<asp>\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
-    if match:
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+
+    match = re.search(r"```asp\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
+    if match and match.group(1).strip():
         return match.group(1).strip()
 
     return response
