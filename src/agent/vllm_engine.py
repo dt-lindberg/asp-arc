@@ -53,7 +53,14 @@ class VLLMEngine:
         logger.debug(f"Resolving snapshot for {MODEL_REPO_ID}")
         model_path = snapshot_download(
             repo_id=MODEL_REPO_ID,
-            allow_patterns=["*.safetensors", "*.json", "*.txt", "tokenizer*", "*.py"],
+            allow_patterns=[
+                "*.safetensors",
+                "*.json",
+                "*.txt",
+                "tokenizer*",
+                "*.py",
+                "*.jinja",
+            ],
         )
         logger.info(f"Loading model from {model_path}")
         t0 = time.perf_counter()
