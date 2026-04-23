@@ -252,104 +252,92 @@ def show_program(code, errors_str=""):
 
 
 # ---------------------------------------------------------------------------
-# Step display
+# Generation step display
 # ---------------------------------------------------------------------------
 
-STEP_LABELS = {
-    "analysis":     "Step 1 — Transformation Analysis",
-    "predicates":   "Step 2 — Predicate List",
-    "choice_rules": "Step 3 — Choice Rules",
-    "constraints":  "Step 4 — Constraints",
-}
+# Ordered list of (field_name, kind, label, text_area_height).
+# - kind "prose": wrapped in an expander, rendered via st.text_area
+# - kind "code":  rendered inline via show_program with error-line highlighting
+# Unknown/extra fields on a step are ignored gracefully, so the schema can grow
+# over time without breaking the viewer.
+STEP_FIELD_SPEC = [
+    ("prompt",    "prose", "Prompt",    240),
+    ("thinking",  "prose", "Thinking",  320),
+    ("response",  "prose", "Response",  240),
+    ("extracted", "code",  "Extracted", None),
+    ("program",   "code",  "Program",   None),
+]
 
-# Steps that produce ASP code (extracted field is code, not NL prose)
-ASP_STEPS = {"choice_rules", "constraints"}
+# Fields that carry structural/metadata information rather than free-form text.
+# Listed here so they don't get rendered as generic key/value pairs.
+STEP_META_FIELDS = {"attempt", "all_train_correct", "train_verifications"}
 
 
-def show_steps(steps, puzzle_idx):
-    """Render the 4 generation steps as collapsible expanders."""
-    for key, label in STEP_LABELS.items():
-        if key not in steps:
+def show_step_fields(step, key_prefix, puzzle_idx, error_lines_str=""):
+    """Render the known text/code fields of a step in a consistent order.
+
+    * Prose fields (prompt/thinking/response) go into expanders.
+      - Code fields (extracted/program) are rendered with error-line highlighting.
+    """
+    for field, kind, label, height in STEP_FIELD_SPEC:
+        val = step.get(field)
+        if not (isinstance(val, str) and val.strip()):
             continue
-        step = steps[key]
-        with st.expander(label, expanded=False):
-            thinking = step.get("thinking", "")
-            if thinking and thinking.strip():
-                st.markdown("**Thinking**")
+        if kind == "prose":
+            with st.expander(label, expanded=False):
                 st.text_area(
-                    "thinking",
-                    value=thinking,
-                    height=180,
+                    label,
+                    value=val,
+                    height=height,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"p{puzzle_idx}_thinking_{key}",
+                    key=f"p{puzzle_idx}_{key_prefix}_{field}",
                 )
-
-            st.markdown("**Response**")
-            response = step.get("response", "")
-            if key in ASP_STEPS:
-                extracted = step.get("extracted", "")
-                # Show full response as prose, then extracted code separately
-                st.text_area(
-                    "response",
-                    value=response,
-                    height=160,
-                    disabled=True,
-                    label_visibility="collapsed",
-                    key=f"p{puzzle_idx}_response_{key}",
-                )
-                if extracted and extracted != response:
-                    st.markdown("**Extracted program**")
-                    show_program(extracted)
-            else:
-                st.text_area(
-                    "response",
-                    value=response,
-                    height=200,
-                    disabled=True,
-                    label_visibility="collapsed",
-                    key=f"p{puzzle_idx}_response_{key}",
-                )
+        else:
+            st.markdown(f"**{label}**")
+            show_program(val, error_lines_str)
 
 
-# ---------------------------------------------------------------------------
-# Refinement display
-# ---------------------------------------------------------------------------
+def show_step(step, title, key_prefix, examples, puzzle_idx, expanded=False):
+    """Render one pipeline step (initial or refinement) as a collapsible section.
+
+    * Title bar summarises solve status based on all_train_correct if present.
+      - Body shows the step's text/code fields followed by per-example verification grids.
+    """
+    verifications = step.get("train_verifications", []) or []
+    # Aggregate any clingo errors so show_program can highlight offending lines
+    all_errors = " ".join(v.get("clingo_errors", "") or "" for v in verifications)
+
+    all_ok = step.get("all_train_correct")
+    if all_ok is True:
+        status = " — SOLVED"
+    elif all_ok is False:
+        status = " — UNSOLVED"
+    else:
+        status = ""
+
+    with st.expander(f"{title}{status}", expanded=expanded):
+        show_step_fields(step, key_prefix, puzzle_idx, error_lines_str=all_errors)
+
+        if verifications:
+            st.markdown("**Training verification**")
+            show_verification_grids(verifications, examples)
 
 
 def show_refinements(refinements, examples, puzzle_idx):
-    """Render each refinement attempt as a collapsible expander."""
+    """Render each refinement attempt using the generic step renderer."""
     if not refinements:
         return
     st.subheader("Refinement Attempts")
     for ref in refinements:
-        attempt = ref["attempt"]
-        all_ok = ref.get("all_train_correct", False)
-        with st.expander(f"Attempt {attempt} — {'SOLVED' if all_ok else 'UNSOLVED'}", expanded=False):
-            thinking = ref.get("thinking", "")
-            if thinking and thinking.strip():
-                st.markdown("**Thinking**")
-                st.text_area(
-                    "thinking",
-                    value=thinking,
-                    height=160,
-                    disabled=True,
-                    label_visibility="collapsed",
-                    key=f"p{puzzle_idx}_ref_thinking_{attempt}",
-                )
-
-            program = ref.get("program", "")
-            # Collect all errors across examples to highlight lines
-            all_errors = " ".join(
-                v.get("clingo_errors", "") or ""
-                for v in ref.get("train_verifications", [])
-            )
-            if program:
-                st.markdown("**Program**")
-                show_program(program, all_errors)
-
-            st.markdown("**Training verification**")
-            show_verification_grids(ref.get("train_verifications", []), examples)
+        attempt = ref.get("attempt", "?")
+        show_step(
+            ref,
+            title=f"Attempt {attempt}",
+            key_prefix=f"ref_{attempt}",
+            examples=examples,
+            puzzle_idx=puzzle_idx,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -439,13 +427,22 @@ st.caption(
     f"{len(record.get('refinements', []))} refinement(s)"
 )
 
-# Load the original puzzle to get input grids for visualisation
+# Load the original puzzle to get input grids for visualisation.
+# `load_puzzle` resolves dataset paths relative to the project's `src/`
+# directory, so chdir there for the call regardless of the streamlit CWD.
 try:
     from utils.arc_loader import load_puzzle
-    puzzle = load_puzzle(puzzle_id, dataset)
+    src_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+    _prev_cwd = os.getcwd()
+    try:
+        os.chdir(src_dir)
+        puzzle = load_puzzle(puzzle_id, dataset)
+    finally:
+        os.chdir(_prev_cwd)
     examples = puzzle["train"]
     test_examples = puzzle.get("test", [])
-except Exception:
+except Exception as e:
+    st.warning(f"Could not load puzzle data: {e}")
     puzzle = {}
     examples = []
     test_examples = []
@@ -463,61 +460,52 @@ show_example_navigator(
 )
 
 # ---------------------------------------------------------------------------
-# Step-by-step reasoning
+# Generation steps
 # ---------------------------------------------------------------------------
+# Render every step under `record["steps"]` generically. The dict may carry
+# one entry ("initial") or several; step key order is preserved.
 
-st.subheader("Step-by-Step Analysis")
-show_steps(record.get("steps", {}), puzzle_idx)
-
-# ---------------------------------------------------------------------------
-# Final assembled program
-# ---------------------------------------------------------------------------
-
-st.subheader("Assembled Program")
-full_program = record.get("full_program", "")
-if full_program:
-    # Collect syntax errors across all initial verifications to highlight lines
-    all_init_errors = " ".join(
-        v.get("clingo_errors", "") or ""
-        for v in record.get("train_verifications", [])
-    )
-    show_program(full_program, all_init_errors)
-else:
-    st.caption("(no program)")
-
-# ---------------------------------------------------------------------------
-# Training verification results
-# ---------------------------------------------------------------------------
-
-st.subheader("Training Verification")
-train_verifications = record.get("train_verifications", [])
-
-if train_verifications:
-    # Aggregate status summary
-    n_pass = sum(1 for v in train_verifications if v.get("correct"))
-    n_total = len(train_verifications)
-    unique_statuses = list({v["status"] for v in train_verifications if not v["correct"]})
-
-    if n_pass == n_total:
-        st.success(f"All {n_total} training examples passed.")
-    else:
-        fails = n_total - n_pass
-        st.error(
-            f"{n_pass}/{n_total} passed · {fails} failed"
-            + (f" ({', '.join(unique_statuses)})" if unique_statuses else "")
+steps = record.get("steps", {}) or {}
+if steps:
+    st.subheader("Generation")
+    for step_key, step in steps.items():
+        if not isinstance(step, dict):
+            continue
+        show_step(
+            step,
+            title=step_key.replace("_", " ").title(),
+            key_prefix=f"step_{step_key}",
+            examples=examples,
+            puzzle_idx=puzzle_idx,
+            expanded=True,
         )
 
-    # If all examples share the same syntax error, show it once rather than per-example
-    clingo_errors = [v.get("clingo_errors") or "" for v in train_verifications]
-    if len(set(clingo_errors)) == 1 and clingo_errors[0] and not any(
-        v.get("correct") for v in train_verifications
-    ):
-        st.markdown("**Clingo errors (same for all examples)**")
-        st.code(clingo_errors[0], language=None)
-    else:
-        show_verification_grids(train_verifications, examples)
-else:
-    st.caption("(no verification data)")
+# ---------------------------------------------------------------------------
+# Legacy top-level program / verifications (shown only if present)
+# ---------------------------------------------------------------------------
+# Older runs stored the assembled program and its verification results at the
+# top level. Newer runs embed these inside each step. Keep rendering them when
+# they exist so historical audits remain viewable.
+
+full_program = record.get("full_program", "")
+top_verifications = record.get("train_verifications", []) or []
+
+if full_program:
+    st.subheader("Assembled Program")
+    all_init_errors = " ".join(
+        v.get("clingo_errors", "") or "" for v in top_verifications
+    )
+    show_program(full_program, all_init_errors)
+
+    if top_verifications:
+        st.subheader("Training Verification")
+        n_pass = sum(1 for v in top_verifications if v.get("correct"))
+        n_total = len(top_verifications)
+        if n_pass == n_total:
+            st.success(f"All {n_total} training examples passed.")
+        else:
+            st.error(f"{n_pass}/{n_total} passed")
+        show_verification_grids(top_verifications, examples)
 
 # ---------------------------------------------------------------------------
 # Refinement attempts
