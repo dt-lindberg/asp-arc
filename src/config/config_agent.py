@@ -18,8 +18,8 @@ LANGUAGE_MODEL_ONLY = True
 # │ TOP_K                       │ vocab truncation to top-k before sampling        │
 # │ MIN_P                       │ min token probability relative to top token      │
 # └─────────────────────────────┴──────────────────────────────────────────────────┘
-MAX_TOKENS = 81_920
-MAX_MODEL_LEN = 94_000
+MAX_TOKENS = 200_000
+MAX_MODEL_LEN = 262_144
 MAX_NUM_BATCHED_TOKENS = 8192
 MAX_NUM_SEQS = 10
 GPU_MEMORY_UTILIZATION = 0.95
