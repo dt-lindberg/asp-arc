@@ -15,7 +15,7 @@ import os
 import time
 
 from agent.agent import Agent
-from config.config import MAX_ATTEMPTS, SEED
+from config.config import MAX_ATTEMPTS, SEED as DEFAULT_SEED
 from utils.arc_loader import get_puzzles, get_puzzles_by_ids
 from utils.clingo import run_clingo
 from utils.eval import verify_on_training_examples
@@ -35,7 +35,7 @@ def main(args):
     if args.puzzle_ids:
         puzzles = get_puzzles_by_ids(args.puzzle_ids, dataset=args.dataset)
     else:
-        puzzles = get_puzzles(dataset=args.dataset, n=args.num, seed=SEED)
+        puzzles = get_puzzles(dataset=args.dataset, n=args.num, seed=args.seed)
 
     logger.info(f"Loaded {len(puzzles)} puzzle(s)")
     logger.debug(f"IDs: {[p['id'] for p in puzzles]}")
@@ -44,7 +44,7 @@ def main(args):
     audit_dir = os.path.join("audit", run_id)
     os.makedirs(audit_dir, exist_ok=True)
 
-    agent = Agent()
+    agent = Agent(seed=args.seed)
     sessions = [
         Session(p, run_id, audit_path=os.path.join(audit_dir, f"{p['id']}.json"))
         for p in puzzles
@@ -128,7 +128,7 @@ if __name__ == "__main__":
         help="Specific puzzle IDs to run (overrides --num)",
     )
     parser.add_argument(
-        "--seed", default=SEED, type=int, help="Seed for everything, including vLLM"
+        "--seed", default=DEFAULT_SEED, type=int, help="Seed for everything, including vLLM"
     )
     args = parser.parse_args()
     main(args)

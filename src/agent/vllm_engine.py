@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 
 class VLLMEngine:
-    def __init__(self):
+    def __init__(self, seed=None):
         """
         Initialize the vLLM engine and sampling parameters from config_agent.
 
@@ -48,6 +48,9 @@ class VLLMEngine:
         """
         from vllm import LLM, SamplingParams
 
+        seed = seed if seed is not None else SEED
+        logger.debug(f"Using seed={seed}")
+
         logger.debug(f"Resolving snapshot for {MODEL_REPO_ID}")
         model_path = snapshot_download(
             repo_id=MODEL_REPO_ID,
@@ -63,7 +66,7 @@ class VLLMEngine:
             max_num_seqs=MAX_NUM_SEQS,
             max_num_batched_tokens=MAX_NUM_BATCHED_TOKENS,
             gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
-            seed=SEED,
+            seed=seed,
         )
         # Add this for Qwen3.6 to skip vision part
         if LANGUAGE_MODEL_ONLY:
@@ -93,7 +96,7 @@ class VLLMEngine:
         logger.debug(f"Stop token ids: {stop_token_ids}")
 
         self.sampling_params = SamplingParams(
-            seed=SEED,
+            seed=seed,
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
             top_p=TOP_P,

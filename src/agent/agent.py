@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 
 class Agent:
-    def __init__(self):
+    def __init__(self, seed=None):
         """
         Load prompt templates eagerly; defer vLLM model load until first
         generation call so `python -c 'import agent.agent'` stays cheap.
@@ -26,6 +26,7 @@ class Agent:
         * The reattempt template is a single user message (no system prompt);
           the history itself carries the conversational context.
         """
+        self.seed = seed
         self.prompts = {}
         for kind, path in PROMPT_PATHS.items():
             with open(path, encoding="utf-8") as f:
@@ -36,6 +37,8 @@ class Agent:
         self._initial_system, self._initial_user = split_on_separator(
             self.prompts["initial"]
         )
+        # Backing field for the lazy `engine` property below; underscored to
+        # avoid colliding with the property name.
         self._engine = None
 
     @property
@@ -45,7 +48,7 @@ class Agent:
         if self._engine is None:
             from agent.vllm_engine import VLLMEngine
 
-            self._engine = VLLMEngine()
+            self._engine = VLLMEngine(seed=self.seed)
         return self._engine
 
     def generate_initial(self, puzzles):
