@@ -1,10 +1,8 @@
 # Path to model weights
 
-DEFAULT_ENGINE = "qwen36-27B"
-# MODEL_REPO_ID = "Qwen/Qwen3.6-35B-A3B-FP8"  # HuggingFace repo id
-MODEL_REPO_ID = "Qwen/Qwen3.6-27B-FP8"  # HuggingFace repo id
+DEFAULT_ENGINE = "nemotron-cascade-2"
+MODEL_REPO_ID = "chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"  # HuggingFace repo id
 THINKING = True
-LANGUAGE_MODEL_ONLY = True
 
 # ┌─────────────────────────────┬──────────────────────────────────────────────────┐
 # │ Parameter                   │ Description                                      │
@@ -24,7 +22,7 @@ MAX_MODEL_LEN = 262_144
 MAX_NUM_BATCHED_TOKENS = 8192
 MAX_NUM_SEQS = 10
 GPU_MEMORY_UTILIZATION = 0.95
-TEMPERATURE = 0.6
+TEMPERATURE = 1.0
 TOP_P = 0.95
 TOP_K = 20
 MIN_P = 0.0

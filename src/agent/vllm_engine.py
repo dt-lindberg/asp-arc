@@ -10,7 +10,6 @@ from config.config import SEED, LOG_LEVEL
 from config.config_agent import (
     MODEL_REPO_ID,
     THINKING,
-    LANGUAGE_MODEL_ONLY,
     MAX_TOKENS,
     MAX_MODEL_LEN,
     MAX_NUM_BATCHED_TOKENS,
@@ -59,18 +58,24 @@ class VLLMEngine:
         logger.info(f"Loading model from {model_path}")
         t0 = time.perf_counter()
 
-        # Define LLM parameters, add parameters as needed
+        # Define LLM parameters, add parameters as needed.
+        # Nemotron-Cascade-2 specifics:
+        #   - trust_remote_code: model ships a custom chat template & Mamba code.
+        #   - mamba_ssm_cache_dtype="float32": critical to prevent gibberish
+        #     output from the Mamba blocks under lower precision.
+        #   - kv_cache_dtype="fp8": pairs with the NVFP4 weights to fit context.
         llm_kwargs = dict(
             model=model_path,
+            trust_remote_code=True,
+            mamba_ssm_cache_dtype="float32",
+            kv_cache_dtype="fp8",
+            tensor_parallel_size=1,
             max_model_len=MAX_MODEL_LEN,
             max_num_seqs=MAX_NUM_SEQS,
             max_num_batched_tokens=MAX_NUM_BATCHED_TOKENS,
             gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
             seed=seed,
         )
-        # Add this for Qwen3.6 to skip vision part
-        if LANGUAGE_MODEL_ONLY:
-            llm_kwargs["language_model_only"] = True
 
         self.llm = LLM(**llm_kwargs)
         logger.info(f"Model loaded in {time.perf_counter() - t0:.2f}s")
@@ -108,7 +113,7 @@ class VLLMEngine:
         )
 
     def _apply_template(self, messages):
-        """Apply chat template, enabling thinking mode for Qwen3."""
+        """Apply the tokenizer chat template with thinking mode toggled by THINKING."""
         formatted = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,

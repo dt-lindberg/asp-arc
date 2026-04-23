@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=EnvDown36
+#SBATCH --job-name=EnvDownNemotron
 #SBATCH --partition=rome
 #SBATCH --time=01:30:00
 #SBATCH --nodes=1
@@ -20,8 +20,7 @@ mkdir -p "$HF_HUB_CACHE"
 cd $HOME/Projects/asp-arc
 
 VENV=.venv
-# REPO_ID="Qwen/Qwen3.6-35B-A3B-FP8"
-REPO_ID="Qwen/Qwen3.6-27B-FP8"
+REPO_ID="chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"
 
 echo "=== [1/4] Create venv at $VENV ==="
 if [ ! -d "$VENV" ]; then
