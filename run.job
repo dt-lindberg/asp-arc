@@ -16,6 +16,11 @@ module load 2025
 module load CUDA/12.8.0
 module load Python/3.13.5-GCCcore-14.3.0
 
+# Scratch disk for storing model weights
+export HF_HOME=/scratch-shared/dlindberg/hf_cache
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+
 mkdir -p audit outputs logs
 
 source ../.venv/bin/activate
