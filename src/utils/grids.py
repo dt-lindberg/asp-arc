@@ -13,6 +13,13 @@ Index:
 import re
 
 
+def _clean(code):
+    """Strip rogue delimiters (backtick fences, <asp> tags) from extracted code."""
+    code = re.sub(r"</?asp>", "", code, flags=re.IGNORECASE)
+    code = re.sub(r"```\w*", "", code)
+    return code.strip()
+
+
 def extract_code_blocks(response):
     """
     Extract the first ASP program from the response.
@@ -26,19 +33,19 @@ def extract_code_blocks(response):
     """
     match = re.search(r"<asp>\s*\n?(.*?)</asp>", response, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
-        return match.group(1).strip()
+        return _clean(match.group(1).strip())
 
     match = re.search(r"```asp\s*\n?(.*?)```", response, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
-        return match.group(1).strip()
+        return _clean(match.group(1).strip())
 
     match = re.search(r"<asp>\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
-        return match.group(1).strip()
+        return _clean(match.group(1).strip())
 
     match = re.search(r"```asp\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
-        return match.group(1).strip()
+        return _clean(match.group(1).strip())
 
     return response
 
