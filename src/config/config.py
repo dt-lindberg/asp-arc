@@ -14,7 +14,7 @@ CLINGO_TIMEOUT = 30.0
 # SEVERELY_UNDERCONSTRAINED_THRESHOLD: programs with more answer sets than this
 #   get a simplified feedback message instead of showing variable atoms
 # MAX_VARIABLE_ATOMS: limit variable atoms shown in feedback
-MAX_ATTEMPTS = 2
+MAX_ATTEMPTS = 6
 SEVERELY_UNDERCONSTRAINED_THRESHOLD = 1000
 MAX_VARIABLE_ATOMS = 30
 
