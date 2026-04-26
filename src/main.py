@@ -28,8 +28,11 @@ logger = get_logger(__name__)
 
 def main(args):
     run_id = time.strftime("%Y%m%d_%H%M%S")
+    if args.tag:
+        run_id = f"{run_id}_{args.tag}"
     logger.info(f"Run ID: {run_id}")
     logger.info(f"Args: {vars(args)}")
+    logger.info(f"INITIAL_PROMPT_PATH={os.environ.get('INITIAL_PROMPT_PATH', 'prompts/initial_prompt.txt')}")
 
     # Load selected IDs or choose n at random
     if args.puzzle_ids:
@@ -129,6 +132,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--seed", default=DEFAULT_SEED, type=int, help="Seed for everything, including vLLM"
+    )
+    parser.add_argument(
+        "--tag",
+        default=None,
+        help="Optional run-id suffix (e.g. v1_s132) to distinguish variants in audit/",
     )
     args = parser.parse_args()
     main(args)

@@ -1,0 +1,54 @@
+#!/bin/bash
+
+#SBATCH --job-name=ASPArc-variant
+#SBATCH --partition=gpu_h100
+#SBATCH --time=02:00:00
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc/src
+#SBATCH --output=outputs/slurm_%A_%x.out
+
+# Usage: sbatch --export=VARIANT=v0,SEED=132 run_variant.job
+#   VARIANT in {v0, v1, v2}: which prompt variant to use
+#   SEED:     LLM sampling seed (puzzle set is fixed via --puzzle_ids)
+
+set -u
+VARIANT="${VARIANT:?must set VARIANT=v0|v1|v2}"
+SEED="${SEED:?must set SEED}"
+
+case "$VARIANT" in
+  v0) PROMPT_PATH="prompts/initial_prompt.txt" ;;
+  v1) PROMPT_PATH="prompts/initial_prompt_v1_minimal.txt" ;;
+  v2) PROMPT_PATH="prompts/initial_prompt_v2_examples.txt" ;;
+  *)  echo "unknown VARIANT=$VARIANT"; exit 2 ;;
+esac
+
+export INITIAL_PROMPT_PATH="$PROMPT_PATH"
+
+module purge
+module load 2025
+module load CUDA/12.8.0
+module load Python/3.13.5-GCCcore-14.3.0
+
+export HF_HOME=/scratch-shared/dlindberg/hf_cache
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+mkdir -p audit outputs logs
+
+source ../.venv/bin/activate
+
+# Locked 20 puzzles from get_puzzles('arc-v1-training', n=20, seed=132)
+# so every (variant, seed) combination evaluates the same puzzle set.
+PUZZLES="8d510a79 39e1d7f9 8a004b2b 1e0a9b12 3de23699 137eaa0f 6aa20dc0 2bee17df feca6190 b527c5c6 0a938d79 5521c0d9 963e52fc 57aa92db 4522001f 97999447 d5d6de2d bc1d5164 88a10436 54d9e175"
+
+echo "VARIANT=$VARIANT SEED=$SEED INITIAL_PROMPT_PATH=$INITIAL_PROMPT_PATH"
+
+python3 -m main \
+    --dataset arc-v1-training \
+    --puzzle_ids $PUZZLES \
+    --seed "$SEED" \
+    --tag "${VARIANT}_s${SEED}"
+
+echo ""
+echo "Job complete (VARIANT=$VARIANT SEED=$SEED)."

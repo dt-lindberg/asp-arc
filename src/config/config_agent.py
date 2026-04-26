@@ -30,7 +30,9 @@ PRESENCE_PENALTY = 0.0
 REPETITION_PENALTY = 1.0
 
 
+import os
+
 PROMPT_PATHS = {
-    "initial": "prompts/initial_prompt.txt",
-    "reattempt": "prompts/reattempt.txt",
+    "initial": os.environ.get("INITIAL_PROMPT_PATH", "prompts/initial_prompt.txt"),
+    "reattempt": os.environ.get("REATTEMPT_PROMPT_PATH", "prompts/reattempt.txt"),
 }

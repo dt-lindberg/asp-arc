@@ -1,0 +1,14 @@
+# Submitted 2026-04-26 ~17:48 (Snellius gpu_h100)
+# All 9 jobs run on the same locked 20 puzzles from arc-v1-training, seed=132 selection.
+# The --seed in the python invocation only seeds vLLM sampling.
+#
+# variant  seed   slurm_jobid   tag (also run_id suffix)  prompt_path
+v0        132    22261898      v0_s132   prompts/initial_prompt.txt
+v0        7      22261899      v0_s7     prompts/initial_prompt.txt
+v0        2026   22261900      v0_s2026  prompts/initial_prompt.txt
+v1        132    22261901      v1_s132   prompts/initial_prompt_v1_minimal.txt
+v1        7      22261902      v1_s7     prompts/initial_prompt_v1_minimal.txt
+v1        2026   22261903      v1_s2026  prompts/initial_prompt_v1_minimal.txt
+v2        132    22261904      v2_s132   prompts/initial_prompt_v2_examples.txt
+v2        7      22261905      v2_s7     prompts/initial_prompt_v2_examples.txt
+v2        2026   22261909      v2_s2026  prompts/initial_prompt_v2_examples.txt
