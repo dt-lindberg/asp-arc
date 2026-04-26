@@ -15,8 +15,8 @@ import re
 
 def _clean(code):
     """Strip rogue delimiters (backtick fences, <asp> tags) from extracted code."""
-    code = re.sub(r"</?asp>", "", code, flags=re.IGNORECASE)
-    code = re.sub(r"```\w*", "", code)
+    code = re.sub(r"</?asp>", "", code, flags=re.IGNORECASE)  # Strip <asp> and </asp> tags
+    code = re.sub(r"```\w*", "", code)  # Strip backtick fences (```lang)
     return code.strip()
 
 
@@ -26,28 +26,28 @@ def extract_code_blocks(response):
 
     Tries formats in order, using the first non-empty result:
     1. <asp>...</asp> block
-    2. ```asp ... ``` block
+    2. Any fenced code block (```asp, ```clingo, plain ```, etc.)
     3. Unclosed <asp> tag (rest of response)
-    4. Unclosed ```asp (rest of response)
-    5. Full response as fallback
+    4. Unclosed fenced block (rest of response after first ```)
+    5. Full response as fallback (cleaned)
     """
-    match = re.search(r"<asp>\s*\n?(.*?)</asp>", response, re.DOTALL | re.IGNORECASE)
+    match = re.search(r"<asp>\s*\n?(.*?)</asp>", response, re.DOTALL | re.IGNORECASE)  # <asp>...</asp> block
     if match and match.group(1).strip():
         return _clean(match.group(1).strip())
 
-    match = re.search(r"```asp\s*\n?(.*?)```", response, re.DOTALL | re.IGNORECASE)
+    match = re.search(r"```(?:\w*)\s*\n?(.*?)```", response, re.DOTALL)  # Any ```...``` fenced code block
     if match and match.group(1).strip():
         return _clean(match.group(1).strip())
 
-    match = re.search(r"<asp>\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
+    match = re.search(r"<asp>\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)  # Unclosed <asp> tag
     if match and match.group(1).strip():
         return _clean(match.group(1).strip())
 
-    match = re.search(r"```asp\s*\n?(.*)", response, re.DOTALL | re.IGNORECASE)
+    match = re.search(r"```\s*\n?(.*)", response, re.DOTALL)  # Unclosed ``` backtick fence
     if match and match.group(1).strip():
         return _clean(match.group(1).strip())
 
-    return response
+    return _clean(response)
 
 
 def format_grid(grid):
@@ -99,7 +99,7 @@ def answer_set_to_grid(atoms, n_rows, n_cols):
     Returns a 2D list of ints (or None for missing cells).
     """
     grid = [[None] * n_cols for _ in range(n_rows)]
-    pattern = re.compile(r"output\((\d+),(\d+),(\d+)\)")
+    pattern = re.compile(r"output\((\d+),(\d+),(\d+)\)")  # Matches output(row,col,color) facts
     for atom in atoms:
         m = pattern.match(atom)
         if m:
