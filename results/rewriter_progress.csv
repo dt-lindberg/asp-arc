@@ -1,0 +1,10 @@
+rule_index,rule_name,short_description,total_fixed,delta_fixed,regressions,n_total
+0,baseline,baseline,0,0,0,409
+1,strip_fences,strip fences,3,3,0,409
+2,agg_on_left,agg left to right,3,0,0,409
+3,agg_parens_to_braces,agg () to {},3,0,0,409
+4,mod_to_backslash,#mod to \,3,0,0,409
+5,lowercase_predicates,lcase preds,4,1,0,409
+6,strip_html_tags,strip tags,4,0,0,409
+7,swi_aggregate,swi aggregate,4,0,0,409
+8,strip_continuation_colon,strip cont :-,5,1,0,409

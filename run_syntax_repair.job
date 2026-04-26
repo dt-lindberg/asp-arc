@@ -1,0 +1,30 @@
+#!/bin/bash
+
+#SBATCH --job-name=SyntaxRepair
+#SBATCH --partition=gpu_h100
+#SBATCH --time=02:00:00
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc-rewrites
+#SBATCH --output=slurm_output_%A.out
+
+module purge
+module load 2025
+module load CUDA/12.8.0
+module load Python/3.13.5-GCCcore-14.3.0
+
+# Scratch disk for storing model weights
+export HF_HOME=/scratch-shared/dlindberg/hf_cache
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+
+source .venv/bin/activate
+
+python scripts/run_syntax_repair.py \
+    --num 60 \
+    --audit-run 20260426_123318 \
+    --seed 132
+
+echo ""
+echo "Job complete."

@@ -1,5 +1,6 @@
 """vLLM engine for batched local inference"""
 
+import copy
 import time
 
 from huggingface_hub import snapshot_download
@@ -153,3 +154,39 @@ class VLLMEngine:
 
         # Each response becomes tuple of (thinking, output)
         return [split_thinking(o.outputs[0].text) for o in outputs]
+
+    def generate_batch_with_tokens(self, messages_list, max_tokens_override=None):
+        """Like generate_batch but also returns token counts.
+
+        Args:
+            max_tokens_override: if set, overrides the default max_tokens for this call.
+
+        Returns:
+            list of (thinking, response, prompt_tokens, completion_tokens) tuples.
+        """
+        formatted = [self._apply_template(msgs) for msgs in messages_list]
+
+        # If overriding max_tokens, create temporary sampling params
+        sp = self.sampling_params
+        if max_tokens_override is not None:
+            sp = copy.deepcopy(self.sampling_params)
+            sp.max_tokens = max_tokens_override
+
+        logger.debug(f"Generating batch of {len(formatted)} prompts (with token counts, max_tokens={sp.max_tokens})...")
+        t0 = time.perf_counter()
+        outputs = self.llm.generate(formatted, sp)
+        t_gen = time.perf_counter() - t0
+
+        n_tokens = sum(len(o.outputs[0].token_ids) for o in outputs)
+        logger.debug(
+            f"Generated {n_tokens} tokens in {t_gen:.2f}s ({n_tokens / t_gen:.2f} tok/s)"
+        )
+
+        results = []
+        for o in outputs:
+            thinking, response = split_thinking(o.outputs[0].text)
+            prompt_ids = getattr(o, "prompt_token_ids", None)
+            prompt_tokens = len(prompt_ids) if prompt_ids else 0
+            completion_tokens = len(o.outputs[0].token_ids) if o.outputs[0].token_ids else 0
+            results.append((thinking, response, prompt_tokens, completion_tokens))
+        return results

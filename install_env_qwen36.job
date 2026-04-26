@@ -17,7 +17,7 @@ export HF_HOME=/scratch-shared/dlindberg/hf_cache
 export HF_HUB_CACHE=$HF_HOME/hub
 mkdir -p "$HF_HUB_CACHE"
 
-cd $HOME/Projects/asp-arc
+cd $HOME/Projects/asp-arc-rewrites
 
 VENV=.venv
 REPO_ID="chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"
