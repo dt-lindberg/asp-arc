@@ -233,7 +233,7 @@ class SyntaxRepairAgent:
                 )
                 t0 = time.perf_counter()
                 sub_outputs = self.engine.generate_batch_with_tokens(
-                    sub_msgs, max_tokens_override=16384
+                    sub_msgs, max_tokens_override=32768
                 )
                 t_gen = time.perf_counter() - t0
                 logger.debug(f"  Sub-batch took {t_gen:.1f}s")

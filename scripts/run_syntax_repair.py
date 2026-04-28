@@ -19,6 +19,7 @@ import argparse
 import glob
 import json
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -132,7 +133,18 @@ def main(argv=None):
         "--seed",
         type=int,
         default=132,
-        help="Random seed for LLM sampling (default: 132).",
+        help="Random seed used for both puzzle sampling and LLM sampling.",
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Subdirectory under results/syntax_repair_runs/ to write transcripts. "
+             "Defaults to seed<seed>.",
+    )
+    parser.add_argument(
+        "--all-audits",
+        action="store_true",
+        help="Sample puzzles from every audit run (default: only --audit-run).",
     )
     parser.add_argument(
         "--dry-run",
@@ -141,18 +153,27 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    max_puzzles = None if args.full else args.num
     audit_run = args.audit_run
 
-    # If no specific run, use the most recent
-    if audit_run is None:
+    # When --all-audits is set, we collect from every audit dir and let the
+    # seed pick which N puzzles to use.  Otherwise default to most recent.
+    if args.all_audits:
+        audit_run = None
+    elif audit_run is None:
         runs = sorted(glob.glob(os.path.expanduser("~/Projects/asp-arc/src/audit/*/")))
         if runs:
             audit_run = os.path.basename(runs[-1].rstrip("/"))
 
-    print(f"Audit run: {audit_run}")
-    puzzles = collect_broken_programs(max_puzzles=max_puzzles, audit_run=audit_run)
+    print(f"Audit run: {audit_run if audit_run else '<all>'}")
+    # Always collect the full pool; seed-based sampling picks the subset.
+    puzzles = collect_broken_programs(max_puzzles=None, audit_run=audit_run)
     print(f"Collected {len(puzzles)} unique broken programs")
+
+    # Seed-based random sampling so different seeds explore different puzzles.
+    if not args.full and args.num and len(puzzles) > args.num:
+        rng = random.Random(args.seed)
+        puzzles = rng.sample(puzzles, args.num)
+        print(f"Sampled {len(puzzles)} puzzles using seed={args.seed}")
 
     if args.dry_run:
         for i, p in enumerate(puzzles):
@@ -170,20 +191,38 @@ def main(argv=None):
 
     # Run the agent
     from agent.syntax_repair_agent import SyntaxRepairAgent
+    from config.config_agent import THINKING
+
+    print(f"THINKING={'ON' if THINKING else 'OFF'} (set via AGENT_THINKING env var)")
 
     agent = SyntaxRepairAgent(seed=args.seed)
     transcripts = agent.run(puzzles)
 
-    # Save transcripts
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Save transcripts under a per-run subdir to keep parallel jobs from clashing.
+    run_name = args.run_name or f"seed{args.seed}"
+    out_dir = RESULTS_DIR / run_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Persist the run config alongside the transcripts.
+    meta = {
+        "seed": args.seed,
+        "num_requested": args.num if not args.full else None,
+        "num_processed": len(transcripts),
+        "audit_run": audit_run,
+        "all_audits": args.all_audits,
+        "thinking": THINKING,
+        "run_name": run_name,
+    }
+    (out_dir / "_run_meta.json").write_text(json.dumps(meta, indent=2))
+
     for t in transcripts:
-        path = RESULTS_DIR / f"{t.puzzle_id}.json"
+        path = out_dir / f"{t.puzzle_id}.json"
         t.to_json(path)
         print(f"  [{t.halt_reason}] {t.puzzle_id} -> {path}")
 
     # Quick summary
     fixed = sum(1 for t in transcripts if t.halt_reason == "fixed")
-    print(f"\nSummary: {fixed}/{len(transcripts)} fixed")
+    print(f"\nSummary [{run_name}]: {fixed}/{len(transcripts)} fixed")
 
 
 if __name__ == "__main__":

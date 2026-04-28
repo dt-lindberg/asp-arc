@@ -9,6 +9,14 @@
 #SBATCH --chdir=/home/dlindberg/Projects/asp-arc-rewrites
 #SBATCH --output=slurm_output_%A.out
 
+# Parameters are passed via environment variables (see launch_syntax_repair_runs.sh):
+#   SEED         random seed for puzzle sampling + LLM sampling (default 132)
+#   NUM          number of puzzles to process (default 20)
+#   RUN_NAME     subdir under results/syntax_repair_runs/ (default seed${SEED})
+#   AUDIT_RUN    specific audit dir; unset/empty + ALL_AUDITS=1 -> full corpus
+#   ALL_AUDITS   "1" to sample across every audit dir
+#   AGENT_THINKING  "true"/"false" -- toggles Nemotron thinking mode at runtime
+
 module purge
 module load 2025
 module load CUDA/12.8.0
@@ -21,10 +29,29 @@ mkdir -p "$HF_HUB_CACHE"
 
 source .venv/bin/activate
 
-python scripts/run_syntax_repair.py \
-    --num 60 \
-    --audit-run 20260426_123318 \
-    --seed 132
+SEED="${SEED:-132}"
+NUM="${NUM:-20}"
+RUN_NAME="${RUN_NAME:-seed${SEED}}"
+export AGENT_THINKING="${AGENT_THINKING:-true}"
+
+echo "=== Syntax repair run ==="
+echo "  SEED=${SEED}"
+echo "  NUM=${NUM}"
+echo "  RUN_NAME=${RUN_NAME}"
+echo "  AUDIT_RUN=${AUDIT_RUN:-<unset>}"
+echo "  ALL_AUDITS=${ALL_AUDITS:-0}"
+echo "  AGENT_THINKING=${AGENT_THINKING}"
+echo "========================="
+
+ARGS=(--num "${NUM}" --seed "${SEED}" --run-name "${RUN_NAME}")
+if [ "${ALL_AUDITS:-0}" = "1" ]; then
+    ARGS+=(--all-audits)
+fi
+if [ -n "${AUDIT_RUN:-}" ]; then
+    ARGS+=(--audit-run "${AUDIT_RUN}")
+fi
+
+python scripts/run_syntax_repair.py "${ARGS[@]}"
 
 echo ""
 echo "Job complete."

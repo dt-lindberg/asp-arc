@@ -1,8 +1,12 @@
+import os
+
 # Path to model weights
 
 DEFAULT_ENGINE = "nemotron-cascade-2"
 MODEL_REPO_ID = "chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"  # HuggingFace repo id
-THINKING = True
+# AGENT_THINKING env var lets a single SLURM submission disable Nemotron's
+# <think>...</think> reasoning at runtime without editing config.
+THINKING = os.environ.get("AGENT_THINKING", "true").strip().lower() not in ("false", "0", "no")
 
 # ┌─────────────────────────────┬──────────────────────────────────────────────────┐
 # │ Parameter                   │ Description                                      │
