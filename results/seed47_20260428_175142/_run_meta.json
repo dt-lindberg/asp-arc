@@ -1,0 +1,37 @@
+{
+  "run_id": "20260428_175142",
+  "run_name": "seed47_20260428_175142",
+  "seed": 47,
+  "n_puzzles": 20,
+  "n_solved": 4,
+  "puzzle_ids": [
+    "760b3cac",
+    "1e32b0e9",
+    "91413438",
+    "b7249182",
+    "97a05b5b",
+    "ba97ae07",
+    "7447852a",
+    "56ff96f3",
+    "a87f7484",
+    "83302e8f",
+    "846bdb03",
+    "cdecee7f",
+    "1190e5a7",
+    "8eb1be9a",
+    "d5d6de2d",
+    "0a938d79",
+    "25ff71a9",
+    "007bbfb7",
+    "5c0a986e",
+    "a3325580"
+  ],
+  "args": {
+    "dataset": "arc-v1-training",
+    "num": 20,
+    "puzzle_ids": null,
+    "engine": "nemotron-cascade-2",
+    "seed": 47,
+    "run_name": "seed47_20260428_175142"
+  }
+}

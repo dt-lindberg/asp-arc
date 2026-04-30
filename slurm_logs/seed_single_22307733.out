@@ -1,0 +1,23 @@
+=== Asp-Arc multi-seed run ===
+  SEED=132
+  NUM=5
+  DATASET=arc-v1-training
+  ENGINE=nemotron-cascade-2
+  RUN_NAME=seed132_20260428_143829
+===============================
+2026-04-28 14:38:29,429 [INFO] __main__ - main:263 > Run ID: 20260428_143829  |  Run name: seed132_20260428_143829  |  Seed: 132
+2026-04-28 14:38:29,430 [INFO] __main__ - main:264 > Args: {'dataset': 'arc-v1-training', 'num': 5, 'puzzle_ids': None, 'engine': 'nemotron-cascade-2', 'seed': 132, 'run_name': 'seed132_20260428_143829'}
+Traceback (most recent call last):
+  File "/gpfs/home5/dlindberg/Projects/asp-arc/main.py", line 887, in <module>
+    main(args)
+    ~~~~^^^^^^
+  File "/gpfs/home5/dlindberg/Projects/asp-arc/main.py", line 270, in main
+    puzzles = get_puzzles(dataset=args.dataset, n=args.num, seed=seed)
+  File "/gpfs/home5/dlindberg/Projects/asp-arc/arc_loader.py", line 60, in get_puzzles
+    ids = list_puzzles(dataset)
+  File "/gpfs/home5/dlindberg/Projects/asp-arc/arc_loader.py", line 28, in list_puzzles
+    ids = sorted(f[:-5] for f in os.listdir(path) if f.endswith(".json"))
+                                 ~~~~~~~~~~^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'arc-puzzles/ARC-AGI/data/training'
+
+Job complete.
