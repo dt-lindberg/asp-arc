@@ -245,6 +245,86 @@ def rewrite_syntax_fix(program, syntax_error, engine, pipeline, max_rewrites=3):
     return current_program, max_rewrites, current_error, rounds
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Batched version: process multiple syntax-fix requests in parallel LLM calls.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def batch_rewrite_syntax_fix(tasks, engine, pipeline, max_rewrites=3):
+    """Batch version of rewrite_syntax_fix — multiple programs in one LLM call per attempt.
+
+    Args:
+        tasks: list of dicts with keys:
+            "program", "syntax_error" — the program to fix and its Clingo error.
+
+    Returns:
+        list of (fixed_program, n_rounds_used, final_error, rounds) —
+        same contract as rewrite_syntax_fix, one per task.
+    """
+    n = len(tasks)
+    current_progs = [t["program"] for t in tasks]
+    current_errs = [t["syntax_error"] for t in tasks]
+    round_counts = [0] * n
+    all_rounds = [[] for _ in range(n)]
+    finished = [False] * n
+
+    for attempt in range(1, max_rewrites + 1):
+        active = [i for i in range(n) if not finished[i] and current_errs[i] is not None]
+        if not active:
+            break
+        logger.info(
+            f"  [batch_rewrite] attempt {attempt}/{max_rewrites}, "
+            f"{len(active)} active programs"
+        )
+
+        messages_batch = []
+        for idx in active:
+            annotated = _annotate_clingo_error(current_errs[idx])
+            user_content = (
+                f"{_REWRITE_GUIDE}\n\n"
+                f"Fix the Clingo syntax errors in this program. "
+                f"Output the COMPLETE fixed program in ONE ```asp code block.\n\n"
+                f"Program:\n```asp\n{current_progs[idx]}\n```\n\n"
+                f"Clingo errors:\n{annotated}"
+            )
+            messages_batch.append([
+                {"role": "system", "content": _REWRITE_SYSTEM},
+                {"role": "user", "content": user_content},
+            ])
+
+        raw_results = engine.generate_batch(messages_batch)
+        for batch_pos, idx in enumerate(active):
+            thinking, response = raw_results[batch_pos]
+            round_counts[idx] = attempt
+            program_before = current_progs[idx]
+            extracted = extract_code_blocks(response)
+            if extracted:
+                current_progs[idx] = extracted
+            err = _check_syntax(current_progs[idx], pipeline) if current_progs[idx] else current_errs[idx]
+
+            all_rounds[idx].append({
+                "round": attempt,
+                "system_prompt": _REWRITE_SYSTEM,
+                "prompt": messages_batch[batch_pos][1]["content"],
+                "thinking": thinking,
+                "response": response,
+                "program_before": program_before,
+                "program_after": current_progs[idx],
+                "syntax_error_before": current_errs[idx],
+                "syntax_error_after": err,
+            })
+
+            if err is None:
+                current_errs[idx] = None
+                finished[idx] = True
+                logger.info(f"  [batch_rewrite] task {idx} syntax clean after {attempt} round(s)")
+            else:
+                current_errs[idx] = err
+                logger.info(f"  [batch_rewrite] task {idx} still broken after {attempt} round(s)")
+
+    return list(zip(current_progs, round_counts, current_errs, all_rounds))
+
+
 async def async_rewrite_syntax_fix(
     program, syntax_error, async_engine, pipeline, loop, executor, max_rewrites=3
 ):
@@ -387,9 +467,11 @@ def run_syntax_agent(
         max_attempts:  Max tool-call rounds before giving up
 
     Returns:
-        (fixed_program, steps)
+        (fixed_program, steps, stop_reason)
         fixed_program: best program state at exit (may still have errors if exhausted)
         steps:         list of per-round dicts for storage in results JSON
+        stop_reason:   string describing why the loop ended:
+                       "syntax_clean" | "max_attempts" | "stalled" | "no_tool_call"
     """
     current_program = program
 
@@ -423,14 +505,20 @@ def run_syntax_agent(
 
         tool_call = parse_tool_call(response)
 
+        program_before = current_program
+        syntax_error_before = annotated_error
+
         step = {
             "round": attempt,
             "thinking": thinking,
             "response": response,
             "tool_call": tool_call,
             "tool_result": None,
+            "program_before": program_before,
+            "syntax_error_before": syntax_error_before,
             "program_after": current_program,
             "syntax_error_after": None,
+            "direct_code_extracted": False,
         }
 
         if tool_call is None:
@@ -439,6 +527,7 @@ def run_syntax_agent(
             extracted = extract_code_blocks(response)
             if extracted:
                 current_program = extracted
+                step["direct_code_extracted"] = True
                 logger.info(
                     f"  [syntax agent] extracted program ({len(current_program)} chars)"
                 )
@@ -449,13 +538,13 @@ def run_syntax_agent(
 
             if syntax_err_now is None:
                 logger.info("  [syntax agent] syntax clean after direct fix — done")
-                break
+                return current_program, steps, "syntax_clean"
 
             if attempt >= max_attempts:
                 logger.info(
                     "  [syntax agent] max attempts reached with remaining errors"
                 )
-                break
+                return current_program, steps, "max_attempts"
 
             # Still errors and rounds remain — ask the model to continue
             messages.append(
@@ -522,13 +611,13 @@ def run_syntax_agent(
 
         if syntax_err_now is None:
             logger.info("  [syntax agent] syntax clean — exiting loop early")
-            break
+            return current_program, steps, "syntax_clean"
 
         if stall_rounds >= STALL_LIMIT:
             logger.info(
                 f"  [syntax agent] stuck for {STALL_LIMIT} rounds — giving up early"
             )
-            break
+            return current_program, steps, "stalled"
 
         # Build tool response; append a status note if errors remain and rounds are left
         tool_response_content = result_str
@@ -545,4 +634,4 @@ def run_syntax_agent(
             }
         )
 
-    return current_program, steps
+    return current_program, steps, "max_attempts"

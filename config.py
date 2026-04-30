@@ -1,7 +1,8 @@
 # MODEL
 MODEL_PATH = "chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4"
 
-# Seed for vLLM — deterministic cache reuse across runs
+# Seed for vLLM — deterministic cache reuse across runs.
+# Override via main.py --seed; keeping a default for backward compatibility.
 SEED = 132
 
 # INFERENCE / SAMPLING

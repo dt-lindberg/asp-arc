@@ -46,10 +46,11 @@ def _split_thinking(text):
 
 
 class NemotronEngine:
-    def __init__(self, max_model_len=MAX_MODEL_LEN, temperature=TEMPERATURE):
+    def __init__(self, max_model_len=MAX_MODEL_LEN, temperature=TEMPERATURE, seed=None):
         from vllm import LLM, SamplingParams
 
-        logger.info(f"Loading model: {MODEL_PATH}")
+        engine_seed = seed if seed is not None else SEED
+        logger.info(f"Loading model: {MODEL_PATH} (seed={engine_seed})")
         t0 = time.perf_counter()
         self.llm = LLM(
             model=MODEL_PATH,
@@ -58,7 +59,7 @@ class NemotronEngine:
             kv_cache_dtype="fp8",
             max_model_len=max_model_len,
             tensor_parallel_size=1,
-            seed=SEED,
+            seed=engine_seed,
         )
         logger.info(f"Model loaded in {time.perf_counter() - t0:.2f}s")
 
@@ -121,13 +122,16 @@ class AsyncNemotronEngine:
       one engine type should be instantiated at a time in a given process.
     """
 
-    def __init__(self, max_model_len=MAX_MODEL_LEN, temperature=TEMPERATURE):
+    def __init__(self, max_model_len=MAX_MODEL_LEN, temperature=TEMPERATURE, seed=None):
         from vllm.engine.async_llm_engine import AsyncLLMEngine
         from vllm import AsyncEngineArgs, SamplingParams
         from transformers import AutoTokenizer
 
         logger.info(f"Loading async engine: {MODEL_PATH}")
         t0 = time.perf_counter()
+
+        engine_seed = seed if seed is not None else SEED
+        logger.info(f"Loading async engine: {MODEL_PATH} (seed={engine_seed})")
 
         engine_args = AsyncEngineArgs(
             model=MODEL_PATH,
@@ -136,7 +140,7 @@ class AsyncNemotronEngine:
             kv_cache_dtype="fp8",
             max_model_len=max_model_len,
             tensor_parallel_size=1,
-            seed=SEED,
+            seed=engine_seed,
         )
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
 

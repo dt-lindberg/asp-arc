@@ -25,9 +25,15 @@ from eval import (
     _check_syntax as _check_syntax_fn,
 )
 from utils import format_examples_for_prompt, extract_code_blocks
-from agent import run_syntax_agent, quick_syntax_fix, rewrite_syntax_fix, async_rewrite_syntax_fix
+from agent import (
+    run_syntax_agent,
+    quick_syntax_fix,
+    rewrite_syntax_fix,
+    batch_rewrite_syntax_fix,
+    async_rewrite_syntax_fix,
+)
 from logger import setup_logging, get_logger
-from config import DEFAULT_ENGINE, MAX_ATTEMPTS, MAX_SYNTAX_ATTEMPTS, SEED, N_CANDIDATES
+from config import DEFAULT_ENGINE, MAX_ATTEMPTS, MAX_SYNTAX_ATTEMPTS, SEED as DEFAULT_SEED, N_CANDIDATES
 
 load_dotenv()
 setup_logging(log_level=os.getenv("LOG_LEVEL", "info"))
@@ -84,9 +90,10 @@ def _build_reattempt_prompt(system_prompt, instruction, formatted_examples, hist
 # ---------------------------------------------------------------------------
 
 
-def _make_record(puzzle, run_id):
+def _make_record(puzzle, run_id, seed=None):
     return {
         "run_id": run_id,
+        "seed": seed,
         "puzzle_id": puzzle["id"],
         "dataset": puzzle["dataset"],
         "n_train_examples": len(puzzle["train"]),
@@ -256,34 +263,40 @@ async def _run_refinement_async(
 
 def main(args):
     run_id = time.strftime("%Y%m%d_%H%M%S")
-    logger.info(f"Run ID: {run_id}")
+    run_name = args.run_name or run_id
+    seed = args.seed if args.seed is not None else DEFAULT_SEED
+
+    logger.info(f"Run ID: {run_id}  |  Run name: {run_name}  |  Seed: {seed}")
     logger.info(f"Args: {vars(args)}")
 
     # ── Load puzzles ──────────────────────────────────────────────────────
     if args.puzzle_ids:
         puzzles = get_puzzles_by_ids(args.puzzle_ids, dataset=args.dataset)
     else:
-        puzzles = get_puzzles(dataset=args.dataset, n=args.num, seed=SEED)
+        puzzles = get_puzzles(dataset=args.dataset, n=args.num, seed=seed)
 
     logger.info(f"Loaded {len(puzzles)} puzzle(s): {[p['id'] for p in puzzles]}")
 
     # ── Init pipeline ─────────────────────────────────────────────────────
-    pipeline = Pipeline({"engine": args.engine})
+    pipeline = Pipeline({"engine": args.engine, "seed": seed})
     pipeline.load_prompts()
     pipeline.load_cache()
 
     # ── Pre-format examples for all puzzles ───────────────────────────────
     formatted_examples = [format_examples_for_prompt(p["train"]) for p in puzzles]
 
-    records = [_make_record(p, run_id) for p in puzzles]
+    records = [_make_record(p, run_id, seed=seed) for p in puzzles]
 
     try:
         _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id)
     except Exception as e:
         logger.error(f"Pipeline crashed: {e}", exc_info=True)
         logger.info("Saving partial results before exiting...")
-        _save_results(records, run_id + "_partial")
+        _save_results(records, run_id + "_partial", run_name=run_name)
         raise
+
+    _save_results(records, run_id, run_name=run_name)
+    _save_run_meta(records, run_id, run_name, args, seed)
 
     return records
 
@@ -369,6 +382,103 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         pipeline._get_engine()
     )  # load once; reused by syntax fixes and later stages
 
+    # ── Phase 1: quick_fix + syntax check for all candidates ──────────────
+    # Store per-candidate state in a mutable dict so Phase 2 can update in place.
+    cand_state = []           # per-puzzle list of per-candidate dicts
+    rewrite_tasks = []         # dicts for candidates needing LLM rewrite
+
+    for i in range(n):
+        puzzle_id = puzzles[i]["id"]
+        puzzle_state = []
+        for cand_idx in range(N_CANDIDATES):
+            prog = all_cand_programs[cand_idx][i]
+            fix_stages = []
+            fix_details = []
+
+            quick_prog, n_q = quick_syntax_fix(prog)
+            if n_q > 0:
+                fix_stages.append("quick_fix")
+                fix_details.append({
+                    "stage": "quick_fix",
+                    "n_fixes": n_q,
+                    "program_before": prog,
+                    "program_after": quick_prog,
+                })
+                prog = quick_prog
+                logger.info(
+                    f"  [{puzzle_id}] cand {cand_idx}: quick_fix applied {n_q} fix(es)"
+                )
+
+            state = {
+                "prog": prog,
+                "fix_stages": fix_stages,
+                "fix_details": fix_details,
+            }
+            puzzle_state.append(state)
+
+            syntax_err = _check_syntax_fn(prog, pipeline)
+            if syntax_err:
+                rewrite_tasks.append({
+                    "puzzle_i": i,
+                    "cand_idx": cand_idx,
+                    "state": state,
+                    "syntax_error": syntax_err,
+                })
+                logger.info(
+                    f"  [{puzzle_id}] cand {cand_idx}: needs rewrite"
+                )
+            else:
+                logger.info(
+                    f"  [{puzzle_id}] cand {cand_idx}: syntax OK after quick_fix"
+                )
+        cand_state.append(puzzle_state)
+
+    # ── Phase 2: batched LLM rewrite for all broken candidates ────────────
+    if rewrite_tasks:
+        logger.info(
+            f"Batch-rewriting {len(rewrite_tasks)} broken candidate(s) "
+            f"across {n} puzzle(s)..."
+        )
+        batch_input = [
+            {"program": t["state"]["prog"], "syntax_error": t["syntax_error"]}
+            for t in rewrite_tasks
+        ]
+        batch_results = batch_rewrite_syntax_fix(
+            batch_input, engine, pipeline, max_rewrites=3
+        )
+
+        for task, (rewritten, n_rw, final_err, rw_rounds) in zip(
+            rewrite_tasks, batch_results
+        ):
+            s = task["state"]
+            s["prog"] = rewritten
+            if final_err is None:
+                s["fix_stages"].append("rewrite")
+                s["fix_details"].append({
+                    "stage": "rewrite",
+                    "rounds": rw_rounds,
+                    "n_rounds": n_rw,
+                    "syntax_fixed": True,
+                })
+                logger.info(
+                    f"  [{puzzles[task['puzzle_i']]['id']}] cand {task['cand_idx']}: "
+                    f"rewrite fixed syntax in {n_rw} round(s)"
+                )
+            else:
+                s["fix_stages"].append("rewrite_partial")
+                s["fix_details"].append({
+                    "stage": "rewrite_partial",
+                    "rounds": rw_rounds,
+                    "n_rounds": n_rw,
+                    "syntax_fixed": False,
+                    "remaining_error": final_err,
+                })
+                logger.info(
+                    f"  [{puzzles[task['puzzle_i']]['id']}] cand {task['cand_idx']}: "
+                    f"rewrite partial — flagged syntax_broken"
+                )
+
+    # ── Phase 3: evaluate all candidates + ranking ────────────────────────
     programs = []
     best_gen_results = []  # (thinking, response) for the selected candidate
     for i in range(n):
@@ -386,62 +496,17 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         for cand_idx in range(N_CANDIDATES):
             strategy_name, _ = CAND_STRATEGIES[cand_idx]
             cand_thinking, cand_response = all_cand_results[cand_idx][i]
-            prog = all_cand_programs[cand_idx][i]
-            prog_raw = prog  # program as extracted from LLM response, before any fixes
-            fix_stages = []
-            # Full per-fix-stage audit: prompt/thinking/response/program state
-            fix_details = []
+            prog_raw = all_cand_programs[cand_idx][i]
 
-            # Stage 1: cheap deterministic regex fixes
-            quick_prog, n_q = quick_syntax_fix(prog)
-            if n_q > 0:
-                fix_stages.append("quick_fix")
-                fix_details.append({
-                    "stage": "quick_fix",
-                    "n_fixes": n_q,
-                    "program_before": prog,
-                    "program_after": quick_prog,
-                })
-                prog = quick_prog
-                logger.info(
-                    f"  [{puzzle_id}] cand {cand_idx}: quick_fix applied {n_q} fix(es)"
-                )
-
-            # Stage 2: single-shot LLM rewrite if still broken
-            syntax_err = _check_syntax_fn(prog, pipeline)
-            syntax_broken = False
-            if syntax_err:
-                rewritten, n_rw, rewrite_err, rw_rounds = rewrite_syntax_fix(
-                    prog, syntax_err, engine, pipeline, max_rewrites=3
-                )
-                if rewrite_err is None:
-                    prog = rewritten
-                    fix_stages.append("rewrite")
-                    fix_details.append({
-                        "stage": "rewrite",
-                        "rounds": rw_rounds,
-                        "n_rounds": n_rw,
-                        "syntax_fixed": True,
-                    })
-                    logger.info(
-                        f"  [{puzzle_id}] cand {cand_idx}: rewrite fixed syntax "
-                        f"in {n_rw} round(s)"
-                    )
-                else:
-                    prog = rewritten  # use best partial fix
-                    fix_stages.append("rewrite_partial")
-                    fix_details.append({
-                        "stage": "rewrite_partial",
-                        "rounds": rw_rounds,
-                        "n_rounds": n_rw,
-                        "syntax_fixed": False,
-                        "remaining_error": rewrite_err,
-                    })
-                    syntax_broken = True
-                    logger.info(
-                        f"  [{puzzle_id}] cand {cand_idx}: rewrite partial — "
-                        f"flagged syntax_broken"
-                    )
+            # Retrieve quick-fixed / rewritten program from Phase 1/2
+            cs = cand_state[i][cand_idx]
+            prog = cs["prog"]
+            fix_stages = cs["fix_stages"]
+            fix_details = cs["fix_details"]
+            syntax_broken = any(
+                d.get("stage", "").startswith("rewrite_partial")
+                for d in fix_details
+            )
 
             # Evaluate on training examples
             cand_results = verify_on_training_examples(
@@ -464,17 +529,14 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
                 {
                     "idx": cand_idx,
                     "strategy": strategy_name,
-                    # Full generation audit
                     "prompt": cand_prompt,
                     "thinking": cand_thinking,
                     "response": cand_response,
                     "program_raw": prog_raw,
                     "program_final": prog,
-                    # Syntax fix audit
                     "syntax_ok": not syntax_broken and not has_syntax,
                     "syntax_fix_stages": fix_stages,
                     "syntax_fix_details": fix_details,
-                    # Evaluation results
                     "n_correct": n_correct,
                     "avg_accuracy": round(avg_acc, 4),
                     "is_solved": is_solved,
@@ -572,7 +634,10 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         )
 
         if not has_syntax_error:
-            records[i]["syntax_agent"] = {"triggered": False}
+            records[i]["syntax_agent"] = {
+                "triggered": False,
+                "stop_reason": "no_syntax_error",
+            }
             continue
 
         syntax_error = train_results[0]["clingo_errors"]
@@ -590,6 +655,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
                 records[i]["syntax_agent"] = {
                     "triggered": False,
                     "quick_fix_applied": n_quick,
+                    "stop_reason": "quick_fix_clean",
                 }
                 new_train_results = verify_on_training_examples(
                     quick_fixed, puzzles[i]["train"], pipeline
@@ -634,6 +700,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             records[i]["syntax_agent"] = {
                 **syntax_agent_record,
                 "syntax_fixed": True,
+                "stop_reason": "rewrite_clean",
                 "steps": [],
             }
             new_train_results = verify_on_training_examples(
@@ -653,7 +720,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
             f"(max {MAX_SYNTAX_ATTEMPTS} round(s))..."
         )
 
-        fixed_program, syntax_steps = run_syntax_agent(
+        fixed_program, syntax_steps, stop_reason = run_syntax_agent(
             program=programs[i],
             syntax_error=syntax_error,
             system_prompt=pipeline.prompt["syntax_agent"],
@@ -682,6 +749,7 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
         records[i]["syntax_agent"] = {
             **syntax_agent_record,
             "syntax_fixed": syntax_fixed,
+            "stop_reason": stop_reason,
             "steps": syntax_steps,
         }
 
@@ -786,7 +854,8 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     # ──────────────────────────────────────────────────────────────────────
     # Save results
     # ──────────────────────────────────────────────────────────────────────
-    _save_results(records, run_id)
+    # Note: final saving is handled by main() after _run_pipeline returns.
+    # _save_results(records, run_id, run_name=run_name)  # uncomment if calling _run_pipeline directly
 
     n_final = sum(r["final_correct"] for r in records)
     n_test = sum(r["test_correct"] for r in records)
@@ -802,11 +871,42 @@ def _run_pipeline(puzzles, pipeline, formatted_examples, records, run_id):
     return records
 
 
-def _save_results(records, run_id):
-    out_path = os.path.join("results", f"{run_id}.json")
-    with open(out_path, "w") as f:
-        json.dump(records, f, indent=2)
-    logger.info(f"Results saved to {out_path}")
+def _save_results(records, run_id, run_name=None):
+    if run_name:
+        out_dir = os.path.join("results", run_name)
+        os.makedirs(out_dir, exist_ok=True)
+        for r in records:
+            path = os.path.join(out_dir, f"{r['puzzle_id']}.json")
+            with open(path, "w") as f:
+                json.dump(r, f, indent=2)
+        logger.info(f"Results saved to {out_dir}/ ({len(records)} puzzle(s))")
+    else:
+        out_path = os.path.join("results", f"{run_id}.json")
+        with open(out_path, "w") as f:
+            json.dump(records, f, indent=2)
+        logger.info(f"Results saved to {out_path}")
+
+
+def _save_run_meta(records, run_id, run_name, args, seed):
+    """Save a _run_meta.json alongside per-puzzle result files."""
+    if not run_name:
+        return
+    n_solved = sum(1 for r in records if r.get("final_correct"))
+    out_dir = os.path.join("results", run_name)
+    os.makedirs(out_dir, exist_ok=True)
+    meta = {
+        "run_id": run_id,
+        "run_name": run_name,
+        "seed": seed,
+        "n_puzzles": len(records),
+        "n_solved": n_solved,
+        "puzzle_ids": [r["puzzle_id"] for r in records],
+        "args": vars(args),
+    }
+    path = os.path.join(out_dir, "_run_meta.json")
+    with open(path, "w") as f:
+        json.dump(meta, f, indent=2)
+    logger.info(f"Run metadata saved to {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -825,6 +925,18 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--engine", default=DEFAULT_ENGINE, help="Engine label for cache naming"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for vLLM and puzzle sampling (default: config.SEED = 132)",
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Subdirectory under results/ for per-puzzle JSON output. "
+             "Defaults to the auto-generated run_id (saves single JSON).",
     )
     args = parser.parse_args()
     main(args)

@@ -1,0 +1,57 @@
+#!/bin/bash
+
+#SBATCH --job-name=ArcSeed
+#SBATCH --partition=gpu_h100
+#SBATCH --time=06:00:00
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc
+#SBATCH --output=outputs/slurm_seed_%A.out
+
+# Parameters are passed via environment variables (see scripts/launch_multi_seed.sh):
+#   SEED     random seed for vLLM + puzzle sampling
+#   NUM      number of puzzles to process
+#   DATASET  dataset name
+#   ENGINE   engine label
+
+module purge
+module load 2025
+module load CUDA/12.8.0
+module load Python/3.13.5-GCCcore-14.3.0
+
+export HF_HOME=/scratch-shared/dlindberg/hf_cache
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+
+mkdir -p outputs caches logs
+
+source .venv/bin/activate
+
+SEED="${SEED:-132}"
+NUM="${NUM:-3}"
+DATASET="${DATASET:-arc-v1-training}"
+ENGINE="${ENGINE:-nemotron-cascade-2}"
+
+# Use the seed as part of the run-name so outputs from different seeds
+# land in separate directories: results/seed<seed>_<run_id>/
+RUN_ID=$(python3 -c "import time; print(time.strftime('%Y%m%d_%H%M%S'))")
+RUN_NAME="seed${SEED}_${RUN_ID}"
+
+echo "=== Asp-Arc multi-seed run ==="
+echo "  SEED=${SEED}"
+echo "  NUM=${NUM}"
+echo "  DATASET=${DATASET}"
+echo "  ENGINE=${ENGINE}"
+echo "  RUN_NAME=${RUN_NAME}"
+echo "==============================="
+
+python3 main.py \
+    --seed "${SEED}" \
+    --num "${NUM}" \
+    --dataset "${DATASET}" \
+    --engine "${ENGINE}" \
+    --run-name "${RUN_NAME}"
+
+echo ""
+echo "Job complete."

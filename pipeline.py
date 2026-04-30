@@ -33,6 +33,7 @@ class Context:
 class Pipeline:
     def __init__(self, args=None):
         self.engine = DEFAULT_ENGINE
+        self.seed = None        # optional; overrides config.SEED when set
         self.path_prompt = dict(PROMPT_PATHS)
         self.prompt = {}
         self.path_cache = {}
@@ -58,7 +59,7 @@ class Pipeline:
         if self._engine is None:
             from nemotron_engine import NemotronEngine
 
-            self._engine = NemotronEngine()
+            self._engine = NemotronEngine(seed=self.seed)
         return self._engine
 
     def _get_async_engine(self):
@@ -70,7 +71,7 @@ class Pipeline:
         if self._async_engine is None:
             from nemotron_engine import AsyncNemotronEngine
 
-            self._async_engine = AsyncNemotronEngine()
+            self._async_engine = AsyncNemotronEngine(seed=self.seed)
         return self._async_engine
 
     # ------------------------------------------------------------------
