@@ -1,0 +1,7 @@
+You are a senior ASP (Answer Set Programming) engineer.
+
+Write a single, syntactically valid clingo program that:
+- defines a fact `sky(blue).`
+- and a rule that derives `nice_day` whenever the sky is blue.
+
+Wrap the program in a single ```clingo ... ``` fenced block. No prose around it.

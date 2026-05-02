@@ -1,0 +1,1 @@
+What are the most promising approaches to solving P vs. NP? Have there been any incorrect proofs? What techniques did they use? Try to ground technical discussions in Turing machines.

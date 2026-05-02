@@ -1,0 +1,82 @@
+#!/bin/bash
+
+#SBATCH --job-name=GptOssSmoke
+#SBATCH --partition=gpu_h100
+#SBATCH --time=01:00:00
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc-gpt-oss-nvarc/src
+#SBATCH --output=../slurm_logs/slurm_%A.out
+
+# Bump --gpus= above and TP_SIZE will follow automatically.
+# A single 80 GB H100 fits gpt-oss-120b at native MXFP4 quantization.
+# For 2x H100, set --gpus=2 and GPU_MEMORY_UTILIZATION stays below 0.95.
+
+set -euo pipefail
+
+module purge
+module load 2025
+module load CUDA/12.8.0
+module load Python/3.13.5-GCCcore-14.3.0
+
+# Weights live on /scratch-shared, see docs/docs.hf_cache_on_scratch_shared.md
+export HF_HOME=/scratch-shared/dlindberg/hf_cache
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+
+export VLLM_HOST="${VLLM_HOST:-127.0.0.1}"
+export VLLM_PORT="${VLLM_PORT:-8000}"
+export TP_SIZE="${TP_SIZE:-${SLURM_GPUS:-1}}"
+
+# Pre-download tiktoken encodings to avoid Harmony vocab download bug
+mkdir -p tiktoken_encodings
+wget -nc -q -O tiktoken_encodings/o200k_base.tiktoken \
+  "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" || true
+wget -nc -q -O tiktoken_encodings/cl100k_base.tiktoken \
+  "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken" || true
+export TIKTOKEN_ENCODINGS_BASE="$PWD/tiktoken_encodings"
+
+mkdir -p logs
+
+source ../.venv/bin/activate
+
+echo "Starting vLLM server for openai/gpt-oss-120b (tp=$TP_SIZE, port=$VLLM_PORT)"
+
+vllm serve openai/gpt-oss-120b \
+  --host "$VLLM_HOST" \
+  --port "$VLLM_PORT" \
+  --tensor-parallel-size "$TP_SIZE" \
+  --max-model-len 100000 \
+  --max-num-batched-tokens 4096 \
+  --max-num-seqs 8 \
+  --gpu-memory-utilization 0.92 \
+  --generation-config vllm &
+VLLM_PID=$!
+
+# Wait for the server to be ready (poll /v1/models)
+echo "Waiting for vLLM server to be ready..."
+for i in $(seq 1 300); do
+    if curl -s "http://${VLLM_HOST}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
+        echo "vLLM server ready after ${i}s"
+        break
+    fi
+    if ! kill -0 "$VLLM_PID" 2>/dev/null; then
+        echo "ERROR: vLLM server died unexpectedly" >&2
+        exit 1
+    fi
+    sleep 1
+done
+
+# Run the client
+python3 -m main --prompt-file prompts/math_test.txt
+
+# Cleanup
+kill "$VLLM_PID" 2>/dev/null || true
+wait "$VLLM_PID" 2>/dev/null || true
+
+echo ""
+echo "Job complete."

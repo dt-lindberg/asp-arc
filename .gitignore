@@ -1,6 +1,7 @@
 **/outputs/*
 src/arc-puzzles/*
 *.out
+*.tiktoken
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

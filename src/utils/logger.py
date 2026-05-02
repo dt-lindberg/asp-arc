@@ -1,13 +1,12 @@
 """Centralized low-code logger."""
 
 import logging
-import sys
 import os
+import sys
 import time
 
 from config.config import LOG_FORMAT, ALLOWED_LOGGERS
 
-# Default log directory; override with LOG_DIR env var
 _LOG_DIR = os.getenv("LOG_DIR", "logs")
 
 
@@ -32,7 +31,6 @@ def setup_logging(log_level="info", force=False):
     handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(log_file)]
     logging.basicConfig(level=level, format=LOG_FORMAT, handlers=handlers, force=force)
 
-    # Block noisy third-party loggers; allow only our modules
     logging.getLogger().setLevel(logging.WARNING)
     for name in ALLOWED_LOGGERS:
         logging.getLogger(name).setLevel(level)
