@@ -29,7 +29,7 @@ def main(args):
     engine = VLLMEngine(host=args.host, port=args.port, seed=args.seed)
 
     messages = [{"role": "user", "content": user_prompt}]
-    [(thinking, response)] = engine.generate_batch([messages])
+    [[(thinking, response)]] = engine.generate_batch([messages])
 
     logger.info("=" * 60)
     logger.info("THINKING:")

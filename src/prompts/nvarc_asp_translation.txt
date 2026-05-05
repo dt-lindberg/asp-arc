@@ -1,0 +1,82 @@
+You are an expert in Answer Set Programming (ASP) for the Clingo solver. Your task is to translate a Python transformation function into an equivalent ASP program that solves an ARC-AGI puzzle.
+
+## Clingo Guide
+
+A condensed reference for writing valid Clingo programs. Follow the **Generate–Define–Test** pattern: choice rules generate candidates, auxiliary rules define properties, integrity constraints filter invalid models.
+
+### Rules
+- **Fact**: `p(1).`
+- **Rule**: `head :- body1, body2, ..., bodyN.`  Head derived if body holds.
+- **Integrity constraint**: `:- body.` — discards models where body holds.
+- **Disjunction in head**: `a ; b :- body.` (avoid unless needed; high complexity).
+
+### Negation
+- `not p(X)` — default negation (negation as failure). `X` must be bound by a positive literal elsewhere in body.
+- `-p(X)` — classical (strong) negation; explicit falsity.
+
+### Choice Rules (preferred over disjunction)
+- `{ p(X) : dom(X) }` — choose any subset.
+- `1 { color(N,C) : color(C) } 1 :- node(N).` — exactly one color per node (lower/upper bounds).
+- Conditional literal `L0 : L1,...,Ln` selects `L0` for each instantiation satisfying conditions.
+
+### Aggregates
+- `#count { X : p(X) }` — number of distinct `X` satisfying `p`.
+- `#sum { W,Id : edge(Id,W) }` — sum of `W`. Include unique tag (`Id`) to avoid set-collapsing duplicates.
+- `#min`, `#max` — extremum over weights.
+- Use in body with comparisons: `N = #count { X : p(X) }`, `:- #count { X : p(X) } > 3.`
+
+### Arithmetic & Comparison
+- Operators: `+ - * / \ ** | |` (modulo is `\`, abs `|X|`).
+- Comparisons: `=`, `!=`, `<`, `<=`, `>`, `>=`.
+- `=` also unifies: `pair(X,Y) :- p(P), P = (X,Y).`
+- Variables in arithmetic must be **bound by a positive literal** first.
+
+### Intervals & Pooling
+- `1..5` — integer range. In a head: `grid(1..3).` expands to three facts. In a body: iterates.
+- Pooling: `color(node, (red;green;blue)).` expands to three facts. Cartesian product across multiple pools.
+
+### SAFENESS (CRITICAL)
+Every variable must appear in at least one **positive, non-arithmetic** body literal. UNSAFE RULES ARE REJECTED BY THE COMPILER. Use **domain predicates** (e.g. `cell(R,C)`, `color(C)`) to bind variables and prevent grounding errors.
+
+### Meta-statements
+- `#show output/3.` — restrict displayed predicates.
+- `#const n=3.` — define constant.
+
+### COMMON PITFALLS
+- Variables only inside `not`, comparisons, or arithmetic -> **UNSAFE**.
+- Integer division is `/`; modulo is `\` (single backslash).
+- Use `<=` for less-than-or-equal, NOT `=<` (that is Prolog syntax, rejected by Clingo).
+- Aggregate results cannot be used in arithmetic inline: `W = #max{...} + 1` is INVALID. Assign first: `W1 = #max{...}, W = W1 + 1.`
+- Disjunction in bodies: `head :- (L0; L1; ...)` to signal "L0 or L1 or ...". It is NOT POSSIBLE to make OR statements in Clingo bodies, must separate into two or more rules.
+
+### How to use this information
+Use this Clingo guide to **verify your programs**. When thinking about the solution, VERIFY EACH LINE OF CODE against this guide to make sure it adheres to all principles such as: safe variables, correct aggregates, and no disjunction in bodies.
+
+---
+
+## Puzzle Description
+
+The following describes the puzzle transformation — what it does, how input grids are structured, the underlying logic, core concepts, and key insight:
+
+<<<PUZZLE_XML>>>
+
+## Python Implementation
+
+The following Python function implements the transformation. It takes an input grid and produces an output grid. This is the logic your ASP program must replicate:
+
+```python
+<<<PYTHON_CODE>>>
+```
+
+## Task
+
+Write ASP code for Clingo that performs the same transformation.
+
+**Critical constraints:**
+1. `input(Row, Col, Color)` facts will be injected automatically by the harness — do NOT define or generate these in your program.
+2. Express the output grid in terms of `output(Row, Col, Color)` atoms - these facts are used to determine the programs correctness.
+3. Include a **single fenced code block** in your response that contains the ASP code:
+   ```asp
+   <your program here>
+   ```
+4. **Do not translate Python one-to-one.** ASP is a declarative language — use proper ASP idioms: rules, integrity constraints, aggregates (`#count`, `#sum`, `#min`, `#max`), choice rules with cardinality constraints (`s1 { ... } s2`), conditional literals, disjunctive heads, etc. Do not simulate Python imperative loops in a procedural style, but write ASP-esque high-level descriptions and let the Clingo solver do the rest.

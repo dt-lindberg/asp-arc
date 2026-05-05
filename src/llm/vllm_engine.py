@@ -62,11 +62,12 @@ class VLLMEngine:
             text = content or ""
         return reasoning, text
 
-    async def _one_chat(self, messages):
+    async def _one_chat(self, messages, n=1):
         async with self.sem:
             resp = await self.client.chat.completions.create(
                 model=MODEL_REPO_ID,
                 messages=messages,
+                n=n,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
                 top_p=TOP_P,
@@ -77,28 +78,31 @@ class VLLMEngine:
                     "reasoning_effort": REASONING_EFFORT,
                 },
             )
-            msg = resp.model_dump()["choices"][0]["message"]
-            return self._extract_message(msg)
+            choices = resp.model_dump()["choices"]
+            return [self._extract_message(c["message"]) for c in choices]
 
-    async def generate_batch_async(self, messages_list):
-        tasks = [self._one_chat(messages) for messages in messages_list]
+    async def generate_batch_async(self, messages_list, n=1):
+        tasks = [self._one_chat(messages, n=n) for messages in messages_list]
         return await asyncio.gather(*tasks)
 
-    def generate_batch(self, messages_list):
+    def generate_batch(self, messages_list, n=1):
         """Generate responses for a batch of conversations.
 
         Args:
             messages_list: list of conversations, each a list of role/content dicts.
+            n: number of candidate completions per prompt (vLLM `n` parameter).
 
         Returns:
-            list of (thinking, response) tuples; thinking is "" when absent.
+            list (one entry per prompt) of lists of (thinking, response) tuples,
+            length n. Thinking is "" when absent.
         """
-        logger.debug(f"Generating batch of {len(messages_list)} prompts...")
+        logger.debug(f"Generating batch of {len(messages_list)} prompts (n={n})...")
         t0 = time.perf_counter()
 
-        results = asyncio.run(self.generate_batch_async(messages_list))
+        results = asyncio.run(self.generate_batch_async(messages_list, n=n))
 
         t_gen = time.perf_counter() - t0
-        logger.debug(f"Generated {len(results)} responses in {t_gen:.2f}s")
+        total = sum(len(r) for r in results)
+        logger.debug(f"Generated {total} responses across {len(results)} prompts in {t_gen:.2f}s")
 
         return results
