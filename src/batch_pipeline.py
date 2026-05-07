@@ -21,7 +21,7 @@ from config.config_llm import (
     REASONING_EFFORT, TEMPERATURE, TOP_K,
     VLLM_HOST, VLLM_PORT,
 )
-from config.config_nvarc import NVARC_ASP_PROMPT, NVARC_GRIDS_DIR
+from config.config_nvarc import NVARC_ASP_PROMPT
 from llm.vllm_engine import VLLMEngine
 from utils.asp_validator import validate_asp_program
 from utils.logger import setup_logging, get_logger
@@ -131,7 +131,7 @@ def main(args):
 
     writer = OutputWriter(args.output_file)
     engine = VLLMEngine(host=args.host, port=args.port, seed=args.seed)
-    sampler = sample_puzzles(args.n, seed=args.seed)
+    sampler = sample_puzzles(args.n)
 
     max_refinement = args.max_refinement_attempts
 
@@ -143,13 +143,6 @@ def main(args):
         # ── Phase 1: Build prompts and generate initial candidates ──────────
         rows, src_parquets, initial_messages = [], [], []
         for row, src in chunk:
-            grid_path = os.path.join(
-                NVARC_GRIDS_DIR, row.puzzle_name1,
-                f"{row.puzzle_name1}_{row.puzzle_name2}.json",
-            )
-            if not os.path.isfile(grid_path):
-                logger.warning(f"Skipping {row.puzzle_name1}/{row.puzzle_name2}: grid file missing")
-                continue
             try:
                 puzzle_xml  = extract_puzzle_xml(row.prompt)
                 python_code = extract_python_code(row.completion)
