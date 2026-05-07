@@ -69,9 +69,11 @@ vllm serve "$MODEL_REPO_ID" \
 VLLM_PID=$!
 
 echo "Waiting for vLLM server to be ready..."
-for i in $(seq 1 300); do
+SERVER_READY=0
+for i in $(seq 1 900); do
     if curl -s "http://${VLLM_HOST}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
         echo "vLLM server ready after ${i}s"
+        SERVER_READY=1
         break
     fi
     if ! kill -0 "$VLLM_PID" 2>/dev/null; then
@@ -80,6 +82,11 @@ for i in $(seq 1 300); do
     fi
     sleep 1
 done
+if [ "$SERVER_READY" -eq 0 ]; then
+    echo "ERROR: vLLM server did not become ready within 900s" >&2
+    kill "$VLLM_PID" 2>/dev/null || true
+    exit 1
+fi
 
 python3 -m batch_pipeline \
   --n "$N_PUZZLES" \
