@@ -54,6 +54,10 @@ GPU_MEMORY_UTILIZATION = 0.92
 # `TP_SIZE=$SLURM_GPUS` without us having to edit code when we scale up.
 TENSOR_PARALLEL_SIZE = int(os.environ.get("TP_SIZE", "1"))
 
+# OpenAI client request timeout in seconds.
+# Default 600 s is too low for long reasoning completions (80k max tokens).
+VLLM_REQUEST_TIMEOUT = float(os.environ.get("VLLM_REQUEST_TIMEOUT", "7200"))
+
 PROMPT_PATHS = {
     "smoke_test": "prompts/smoke_test.txt",
     "math_test": "prompts/math_test.txt",

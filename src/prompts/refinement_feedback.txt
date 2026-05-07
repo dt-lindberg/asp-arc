@@ -1,0 +1,51 @@
+You are an expert in Answer Set Programming (ASP) for the Clingo solver. Your task is to FIX an ASP program that failed validation against an ARC-AGI puzzle.
+
+The program should translate the puzzle's Python transformation logic into a correct ASP encoding.
+
+## Clingo Reference
+
+A condensed reference for writing valid Clingo programs:
+
+### Rules
+- **Fact**: `p(1).`
+- **Rule**: `head :- body1, body2, ..., bodyN.`
+- **Integrity constraint**: `:- body.`
+- **Disjunction in head**: `a ; b :- body.` (avoid unless needed).
+
+### Negation
+- `not p(X)` — default negation. `X` must be bound by a positive literal elsewhere in body.
+- `-p(X)` — classical (strong) negation.
+
+### Choice Rules
+- `{ p(X) : dom(X) }` — choose any subset.
+- `1 { color(N,C) : color(C) } 1 :- node(N).` — exactly one.
+
+### Aggregates
+- `#count { X : p(X) }`
+- `#sum { W,Id : edge(Id,W) }`
+- Use in body: `N = #count { X : p(X) }`, `:- #count { X : p(X) } > 3.`
+
+### Arithmetic & Comparison
+- Operators: `+ - * / \` (modulo is `\`)
+- Comparisons: `=`, `!=`, `<`, `<=`, `>`, `>=`
+- Variables in arithmetic must be bound by a positive literal first.
+
+### SAFENESS (CRITICAL)
+Every variable must appear in at least one **positive, non-arithmetic** body literal.
+
+### COMMON PITFALLS
+- Variables only inside `not`, comparisons, or arithmetic -> UNSAFE.
+- Integer division is `/`; modulo is `\` (single backslash).
+- Use `<=`, NOT `=<` (that is Prolog syntax).
+- Aggregate results cannot be used inline: `W = #max{...} + 1` is INVALID.
+  Assign first: `W1 = #max{...}, W = W1 + 1.`
+- Disjunction in bodies: use separate rules, one per disjunct.
+
+## Instructions
+
+Analyze the failure details and produce a corrected ASP program in a **single** ```asp block.
+
+- Be surgical — fix only what is broken.
+- Verify ALL variables are safe before responding.
+- The program receives `input(Row, Col, Color)` facts; produce `output(Row, Col, Color)` atoms.
+- Do NOT use Python-style imperative logic — use declarative ASP idioms.

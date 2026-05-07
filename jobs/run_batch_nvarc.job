@@ -11,8 +11,10 @@
 
 # N_PUZZLES: number of unique puzzles to sample (default 10)
 # N_CANDIDATES: candidate ASP programs generated per puzzle (default 4)
+# MAX_REFINEMENT_ATTEMPTS: refinement rounds per failed candidate (default 2, 0 = off)
 # Usage: N_PUZZLES=500 sbatch jobs/run_batch_nvarc.job
 #        N_CANDIDATES=8 N_PUZZLES=200 sbatch jobs/run_batch_nvarc.job
+#        MAX_REFINEMENT_ATTEMPTS=2 sbatch jobs/run_batch_nvarc.job
 
 set -euo pipefail
 
@@ -31,9 +33,10 @@ export PYTORCH_ALLOC_CONF=expandable_segments:True
 export VLLM_HOST="${VLLM_HOST:-127.0.0.1}"
 export VLLM_PORT="${VLLM_PORT:-8001}"
 export TP_SIZE="${TP_SIZE:-${SLURM_GPUS:-1}}"
-export MAX_NUM_SEQS="${MAX_NUM_SEQS:-20}"
-export N_PUZZLES="${N_PUZZLES:-10}"
+export MAX_NUM_SEQS="${MAX_NUM_SEQS:-50}"
+export N_PUZZLES="${N_PUZZLES:-50}"
 export N_CANDIDATES="${N_CANDIDATES:-4}"
+export MAX_REFINEMENT_ATTEMPTS="${MAX_REFINEMENT_ATTEMPTS:-2}"
 
 mkdir -p tiktoken_encodings
 wget -nc -q -O tiktoken_encodings/o200k_base.tiktoken \
@@ -74,6 +77,8 @@ done
 
 python3 -m batch_pipeline \
   --n "$N_PUZZLES" \
+  --n-candidates "$N_CANDIDATES" \
+  --max-refinement-attempts "$MAX_REFINEMENT_ATTEMPTS" \
   --output-file "../outputs/batch_${SLURM_JOB_ID}.jsonl"
 
 kill "$VLLM_PID" 2>/dev/null || true

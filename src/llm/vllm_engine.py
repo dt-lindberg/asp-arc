@@ -20,6 +20,7 @@ from config.config_llm import (
     TEMPERATURE,
     TOP_P,
     TOP_K,
+    VLLM_REQUEST_TIMEOUT,
 )
 from utils.logger import setup_logging, get_logger
 
@@ -36,6 +37,7 @@ class VLLMEngine:
         self.client = AsyncOpenAI(
             base_url=f"http://{host}:{port}/v1",
             api_key="empty",
+            timeout=VLLM_REQUEST_TIMEOUT,
         )
         self.sem = asyncio.Semaphore(MAX_NUM_SEQS)
 

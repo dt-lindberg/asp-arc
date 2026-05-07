@@ -1,0 +1,300 @@
+================================================================================
+AUTONOMOUS AGENT PROMPT — IMPROVING GPT-OSS-120B'S ASP CODE GENERATION
+================================================================================
+
+You are working autonomously inside the repository
+`/gpfs/home5/dlindberg/Projects/asp-arc-gpt-oss-nvarc` on the isolated branch
+`feature/gpt-oss-nvarc-refinement`. You have full freedom to break, refactor,
+and re-run things on this branch — main does not need to stay compatible.
+
+--------------------------------------------------------------------------------
+1. GOAL
+--------------------------------------------------------------------------------
+
+Improve GPT-OSS-120B's ability to generate **syntactically and logically
+correct ASP (Clingo) programs** that translate NVARC Python solutions into ASP
+encodings of ARC-AGI puzzles.
+
+**Success metric:** the number of puzzles for which AT LEAST ONE candidate
+program passes ALL Clingo verification checks (i.e., produces exactly one
+answer set whose `output/3` atoms match the expected grid for every one of the
+~30 input/output pairs for that puzzle).
+
+Track the metric as a fraction (e.g. `3/10 puzzles solved`) and as a per-
+candidate pass rate. Both are recorded in the JSONL output of every batch run.
+
+--------------------------------------------------------------------------------
+2. CURRENT BASELINE (DO NOT FORGET THESE NUMBERS)
+--------------------------------------------------------------------------------
+
+Run on 9 puzzles (one row had no grids, fix already applied).
+
+| Configuration                                    | Puzzles solved |
+|--------------------------------------------------|----------------|
+| Naive prompt, 1 candidate                        | 0 / 9          |
+| + Clingo syntax guide injected into prompt       | 2 (~3) / 9     |
+| + 4 candidates per puzzle (single-shot)          | 3 / 9          |
+
+Failures are dominated by:
+- Unsafe variable errors (~50% of failed candidates)
+- Syntax errors — misuse of `#mod`, `<`, range syntax, aggregate syntax, etc.
+
+ALL programs in the original baseline failed to compile. Even GPT-OSS-120B
+struggles with ASP syntax. This is what you are trying to fix.
+
+--------------------------------------------------------------------------------
+3. PRIMARY HYPOTHESIS: AGENTIC REFINEMENT LOOP
+--------------------------------------------------------------------------------
+
+Build a refinement loop that turns a one-shot translator into a back-and-forth
+debugger. Concept (proven valuable in `../asp-arc/` — see §8):
+
+For each candidate that fails:
+  Round k = 1 .. MAX_REFINEMENT_ATTEMPTS  (default = 2):
+    1. Pick the FIRST failed input/output pair for this candidate.
+       Do not dump all ~30 failures into the prompt.
+    2. Categorize that failure as one of:
+         a. Syntax / grounder / compilation error
+         b. UNSAT (over-constrained)
+         c. Multiple answer sets (under-constrained)
+         d. Unique answer set but wrong cells
+    3. Build a feedback message:
+         - Echo the candidate's program WITH LINE NUMBERS.
+         - Include the failure category and the raw Clingo error/output.
+         - For (d), include a compact GRID DIFF: expected vs. actual,
+           highlighting the deviating cells (row, col, expected, got).
+         - Preserve the prior conversation turns so the model has the full
+           history of what it has already tried.
+    4. Ask the model to produce a fixed program in a single ```asp``` block.
+    5. Re-validate.
+
+**Early-stopping per puzzle:** once any candidate for a puzzle passes, stop
+refining the OTHER candidates for that puzzle — the puzzle is solved.
+
+**Persist everything:** every refinement round (prompt, thinking, response,
+extracted program, validation result, error category, diff) must be appended
+to the puzzle's JSONL record. Save more, not less. Disk is cheap; lost runs
+are expensive.
+
+--------------------------------------------------------------------------------
+4. WORK LOOP YOU MUST FOLLOW
+--------------------------------------------------------------------------------
+
+Run autonomously. Do not stop after a single experiment. Iterate.
+
+For each idea you try:
+
+  (1) HYPOTHESIZE  — write down (in a docs/exp_<NNN>_<slug>.md file) what
+                     you are testing, what you expect, and how you will
+                     measure it.
+
+  (2) IMPLEMENT    — make the smallest code change that lets you test it.
+
+  (3) SMOKE TEST   — Run with a small config first:
+                       N_PUZZLES=2  N_CANDIDATES=2  MAX_REFINEMENT_ATTEMPTS=1
+                     This minimizes wall-clock and queue time while still
+                     exercising every code path.
+
+  (4) FULL RUN     — Once smoke passes cleanly, submit the real evaluation:
+                       N_PUZZLES=10  N_CANDIDATES=4  MAX_REFINEMENT_ATTEMPTS=2
+
+  (5) MONITOR      — Watch the SLURM job in the BACKGROUND (see §6). Do not
+                     spin-wait or poll aggressively. Do not block on it —
+                     work on the next idea or analysis while it runs.
+
+  (6) ANALYZE      — When the job completes, parse the JSONL, compare against
+                     baseline, and write up the result in the same exp_<NNN>
+                     doc. Include: puzzles solved, per-candidate pass rate,
+                     refinement-round-by-round improvement, dominant error
+                     categories, surprises.
+
+  (7) ITERATE      — If the result is good, keep it and try the next idea.
+                     If it is bad, debug the cause (look at the JSONL — never
+                     guess), then either revert or fix and retry.
+
+If a job fails (vLLM crash, OOM, timeout, parse bug, Clingo timeout storm),
+TREAT IT AS A BUG. Fix the root cause; do not paper over it. Keep going.
+
+--------------------------------------------------------------------------------
+5. ENVIRONMENT — SNELLIUS / SLURM CONSTRAINTS
+--------------------------------------------------------------------------------
+
+You are on the login node as user `dlindberg`. You have NO root access and
+must stay under `/home/dlindberg/` (the working dir is a symlink target on
+`/gpfs/...`).
+
+**Login-node rules (HARD):**
+- OK on login: editing files, copying, `git`, `squeue`, `tail`, `jq`,
+  reading JSONL, simple Python that does not load tokenizers / models.
+- NOT OK on login: anything that loads HF tokenizers, downloads weights,
+  runs Clingo at scale, or otherwise burns CPU. Submit a `--partition=cpu`
+  or `gpu_h100` SLURM job for those.
+
+**Real workloads go through SLURM:**
+  sbatch jobs/run_batch_nvarc.job
+  N_PUZZLES=2 N_CANDIDATES=2 sbatch jobs/run_batch_nvarc.job
+The job spins up a vLLM server hosting GPT-OSS-120B, waits for it to be
+ready, then runs `src/batch_pipeline.py`. See `README.md` for the full
+parameter table (`MAX_NUM_SEQS`, `REASONING_EFFORT`, `N_PUZZLES`,
+`N_CANDIDATES`, etc.). When you add new knobs (e.g. `MAX_REFINEMENT_ATTEMPTS`),
+wire them through env vars the same way and document them.
+
+**Queue & artifact paths:**
+- SLURM stdout/stderr → `slurm_logs/slurm_<JOB_ID>.out`
+- Pipeline JSONL      → `outputs/batch_<JOB_ID>.jsonl`
+- Python logs         → `logs/`
+- Existing baselines  → `outputs/batch_22461383.jsonl`,
+                         `outputs/batch_22475981.jsonl`,
+                         `outputs/batch_22478010.jsonl`
+
+--------------------------------------------------------------------------------
+6. MONITORING JOBS WITHOUT BURNING CONTEXT
+--------------------------------------------------------------------------------
+
+Submit a job and capture the JOB_ID. Then monitor in the BACKGROUND:
+
+  squeue -u dlindberg
+  tail -f slurm_logs/slurm_<JOB_ID>.out      # background
+  ls -la outputs/batch_<JOB_ID>.jsonl        # appears once writes start
+
+Do not sit in a poll loop. Either kick off the next experiment, refactor
+something, or wait on a long delay and re-check. When the job leaves the
+queue, parse `outputs/batch_<JOB_ID>.jsonl` for results.
+
+Useful one-liners (use `jq`):
+  # Per-puzzle pass: any candidate passed?
+  jq -s 'group_by(.puzzle_name1+"|"+.puzzle_name2+"|"+(.sid|tostring))
+         | map({puzzle: .[0].puzzle_name1,
+                solved: (any(.[]; .validation.passed == true))})'
+       outputs/batch_<JOB_ID>.jsonl
+
+  # Per-candidate pass rate
+  jq -s '[.[] | select(.validation != null)]
+         | (map(select(.validation.passed)) | length) as $p
+         | length as $t
+         | {pass: $p, total: $t, rate: ($p/$t)}'
+       outputs/batch_<JOB_ID>.jsonl
+
+--------------------------------------------------------------------------------
+7. JSONL SCHEMA REMINDERS (for the refinement extension)
+--------------------------------------------------------------------------------
+
+Current key: `(puzzle_name1, puzzle_name2, sid, candidate_index)`.
+
+For refinement, EXTEND each record so a candidate's full history is
+recoverable. Recommended additions (don't break existing fields):
+
+  "refinement": [
+    {
+      "round": 1,
+      "trigger": "syntax_error" | "unsat" | "multi_answer_set" | "wrong_cells",
+      "first_failing_pair_index": 7,
+      "feedback_prompt": "...",       // exact text sent back to model
+      "thinking": "...",
+      "response": "...",
+      "asp_code": "...",
+      "validation": { ... same shape as top-level ... },
+      "grid_diff": [ {row,col,expected,got}, ... ]   // only when wrong_cells
+    },
+    { "round": 2, ... }
+  ],
+  "final_validation": { ... },         // result after last attempted round
+  "solved_at_round": 0|1|2|null        // null if never solved
+
+This makes ablations trivial: you can compute "solved at round 0" (initial),
+"solved by round 1", "solved by round 2", etc., directly from the JSONL.
+
+--------------------------------------------------------------------------------
+8. PRIOR WORK — `../asp-arc/` (RAID THIS SHAMELESSLY)
+--------------------------------------------------------------------------------
+
+Path: `/home/dlindberg/Projects/asp-arc/` (also reachable as
+`../asp-arc/` from the repo root).
+
+It implements an agentic refinement pipeline for a different problem
+(grids → ASP), but the loop machinery is directly reusable:
+
+- `agent.py`            — syntax-fix agent with `run_clingo` + `edit_code` tools
+- `pipeline.py`         — orchestrates initial gen → syntax fix → refinement
+- `tools.py`            — tool definitions / parsers
+- `eval.py`             — Clingo evaluation, grid-diff utilities
+- `main.py`             — full pipeline glue
+- `prompts/`            — prompt templates including refinement feedback
+
+Read these BEFORE writing your own loop. Reuse abstractions where they fit;
+adapt the prompts to this repo's direction (Python solution → ASP, not
+grids → ASP).
+
+Lessons already paid for over there (see project memory):
+- Multi-candidate (6) + per-candidate syntax-fix outperformed single shot.
+- Syntax-fix loop, even when not fully converged, makes downstream refinement
+  succeed where it would otherwise fail.
+- Tool-based `edit_code` works well only with old_str/new_str patches;
+  full-content rewrites empirically destroy program logic.
+- Whitespace/Unicode mismatches silently break `old_str` patching — guard for it.
+- `MAX_SYNTAX_ATTEMPTS = 6` was sometimes insufficient.
+- Model wastes rounds re-testing known errors — discourage in the prompt.
+
+--------------------------------------------------------------------------------
+9. IDEA QUEUE (TRY ROUGHLY IN ORDER, BUT USE JUDGEMENT)
+--------------------------------------------------------------------------------
+
+Confirmed wins (already in baseline):
+  [x] Inject Clingo syntax guide in prompt
+  [x] N_CANDIDATES = 4
+
+Next:
+  [ ] Refinement loop (§3) — THE main hypothesis. Implement first.
+  [ ] Better feedback formatting: line-numbered code, concise error excerpt,
+      grid diff for wrong-cell failures.
+  [ ] Per-failure-category prompt branches (syntax vs. semantic vs. cells).
+  [ ] Syntax-only mini-loop before the semantic refinement loop, à la
+      `../asp-arc/agent.py`.
+  [ ] Tool-use mode: give the model `run_clingo` + `edit_code` tools.
+	For GPT-OSS tool-usage see:
+	- https://huggingface.co/docs/inference-providers/en/guides/gpt-oss
+	- https://debuggercafe.com/multi-turn-tool-call-with-gpt-oss-chat/
+	- https://cefboud.com/posts/coding-agents-internals-opencode-deepdive/
+  [ ] Stronger / more example-rich Clingo guide; ablate which sections matter.
+  [ ] Self-consistency / cross-candidate critique (one candidate critiques
+      another).
+  [ ] Re-prompt with a worked example of a similar puzzle that previously
+      passed.
+  [ ] Tighten the grammar of the "single ```asp``` block" instruction —
+      multi-block responses are currently dropped.
+
+--------------------------------------------------------------------------------
+10. DOCUMENTATION & CONTRACT WITH FUTURE-YOU
+--------------------------------------------------------------------------------
+
+For every experiment, leave behind:
+
+- `docs/exp_<NNN>_<slug>.md` with: hypothesis, code/config diff summary,
+  job IDs, headline metrics vs. baseline, error breakdown, and a 2–3 line
+  conclusion ("keep / revert / inconclusive — try X next").
+- A git commit on `feature/gpt-oss-nvarc-refinement` summarizing the change.
+- The JSONL artifact in `outputs/` (already automatic via JOB_ID).
+
+Maintain `docs/experiments_index.md` as a one-line-per-experiment ledger
+so progress is legible at a glance.
+
+--------------------------------------------------------------------------------
+11. STOP CONDITIONS
+--------------------------------------------------------------------------------
+
+Do NOT stop just because one experiment finished. Keep going.
+
+Stop only if:
+- You have hit a true blocker that requires a human decision (cluster
+  outage, missing credentials, ambiguous design choice with major tradeoffs).
+- You have exhausted the idea queue and have no further hypothesis worth
+  testing — in that case, write a final summary doc and stop.
+- The user tells you to stop.
+
+When you stop, leave the repo in a clean state: committed, with the latest
+experiment write-up complete, and a short "next steps" list at the top of
+`docs/experiments_index.md`.
+
+================================================================================
+END OF PROMPT
+================================================================================

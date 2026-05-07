@@ -13,3 +13,6 @@ ALLOWED_LOGGERS = ("__main__", "llm", "utils")
 # Clingo
 CLINGO_TIMEOUT    = 5   # seconds per ground/solve phase
 CLINGO_MAX_MODELS = 2   # stop after 2 — enough to detect ambiguity
+
+# Refinement loop
+MAX_REFINEMENT_ATTEMPTS = 2  # max rounds of fix-and-retry per candidate
