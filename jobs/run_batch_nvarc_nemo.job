@@ -43,6 +43,7 @@ export MAX_REFINEMENT_ATTEMPTS="${MAX_REFINEMENT_ATTEMPTS:-2}"
 export MODEL_REPO_ID="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 export MODEL_FAMILY="nemo"
 export TOP_P="0.95"
+export MAX_TOKENS="${MAX_TOKENS:-50000}"
 
 mkdir -p logs ../outputs
 

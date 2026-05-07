@@ -40,7 +40,7 @@ REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "high").strip().lower()
 # │ MAX_NUM_BATCHED_TOKENS      │ max input tokens across batch per scheduler step │
 # │ GPU_MEMORY_UTILIZATION      │ fraction of VRAM reserved for KV-cache           │
 # └─────────────────────────────┴──────────────────────────────────────────────────┘
-MAX_TOKENS = 80_000
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "80000"))
 MAX_NUM_SEQS = int(os.environ.get("MAX_NUM_SEQS", "8"))
 TEMPERATURE = 1.0
 # Nemotron recommends 0.95; override via TOP_P env var (set by nemo job).
