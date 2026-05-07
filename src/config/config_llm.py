@@ -1,6 +1,6 @@
-"""GPT-OSS-120B / vLLM configuration.
+"""vLLM model configuration.
 
-Client-side settings (model id, sampling params, reasoning effort) and
+Client-side settings (model id, sampling params, reasoning style) and
 server-side defaults (documented here so SLURM scripts stay in sync).
 
 General settings (seed, logging) live in config.py.
@@ -9,7 +9,12 @@ General settings (seed, logging) live in config.py.
 import os
 
 # HuggingFace repo id; weights are pulled into $HF_HUB_CACHE on first run.
-MODEL_REPO_ID = "openai/gpt-oss-120b"
+# Override via MODEL_REPO_ID env var (set by nemo job to select Nemotron).
+MODEL_REPO_ID = os.environ.get("MODEL_REPO_ID", "openai/gpt-oss-120b")
+
+# Selects which reasoning API style to use when building extra_body.
+# "gpt-oss" → reasoning_effort param; "nemo" → chat_template_kwargs.
+MODEL_FAMILY = os.environ.get("MODEL_FAMILY", "gpt-oss")
 
 # vLLM server address — set via env or defaults to localhost.
 VLLM_HOST = os.environ.get("VLLM_HOST", "127.0.0.1")
@@ -38,7 +43,8 @@ REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "high").strip().lower()
 MAX_TOKENS = 80_000
 MAX_NUM_SEQS = int(os.environ.get("MAX_NUM_SEQS", "8"))
 TEMPERATURE = 1.0
-TOP_P = 1.0
+# Nemotron recommends 0.95; override via TOP_P env var (set by nemo job).
+TOP_P = float(os.environ.get("TOP_P", "1.0"))
 TOP_K = -1  # disabled
 
 # Candidates generated per prompt (vLLM `n` parameter). All n samples share the

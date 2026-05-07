@@ -1,0 +1,5 @@
+# Requirements for running vLLM with nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4.
+# Pinning is loose because vLLM pulls in compatible torch/transformers.
+vllm==0.20.0
+huggingface_hub[cli]
+openai>=1.0.0

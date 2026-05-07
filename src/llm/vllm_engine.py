@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from config.config import SEED, LOG_LEVEL
 from config.config_llm import (
     MODEL_REPO_ID,
+    MODEL_FAMILY,
     VLLM_HOST,
     VLLM_PORT,
     REASONING_EFFORT,
@@ -74,11 +75,12 @@ class VLLMEngine:
                 temperature=TEMPERATURE,
                 top_p=TOP_P,
                 seed=self.seed,
-                extra_body={
-                    "top_k": TOP_K,
-                    "include_reasoning": True,
-                    "reasoning_effort": REASONING_EFFORT,
-                },
+                # GPT-OSS uses reasoning_effort; Nemotron uses chat_template_kwargs.
+                extra_body=(
+                    {"top_k": TOP_K, "chat_template_kwargs": {"enable_thinking": True}}
+                    if MODEL_FAMILY == "nemo"
+                    else {"top_k": TOP_K, "include_reasoning": True, "reasoning_effort": REASONING_EFFORT}
+                ),
             )
             choices = resp.model_dump()["choices"]
             return [self._extract_message(c["message"]) for c in choices]

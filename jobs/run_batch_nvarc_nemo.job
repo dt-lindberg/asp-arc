@@ -1,0 +1,94 @@
+#!/bin/bash
+
+#SBATCH --job-name=NemoNvarcBatch
+#SBATCH --partition=gpu_h100
+#SBATCH --time=04:00:00
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --chdir=/home/dlindberg/Projects/asp-arc-gpt-oss-nvarc/src
+#SBATCH --output=../slurm_logs/slurm_%A.out
+
+# N_PUZZLES: number of unique puzzles to sample (default 50)
+# N_CANDIDATES: candidate ASP programs generated per puzzle (default 4)
+# MAX_REFINEMENT_ATTEMPTS: refinement rounds per failed candidate (default 2, 0 = off)
+# Usage: N_PUZZLES=500 sbatch jobs/run_batch_nvarc_nemo.job
+#        N_CANDIDATES=8 N_PUZZLES=200 sbatch jobs/run_batch_nvarc_nemo.job
+#        MAX_REFINEMENT_ATTEMPTS=2 sbatch jobs/run_batch_nvarc_nemo.job
+
+set -euo pipefail
+
+module purge
+module load 2025
+module load CUDA/12.8.0
+module load Python/3.13.5-GCCcore-14.3.0
+
+export HF_HOME=/scratch-shared/dlindberg/hf_cache
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+
+export VLLM_HOST="${VLLM_HOST:-127.0.0.1}"
+export VLLM_PORT="${VLLM_PORT:-8001}"
+export TP_SIZE="${TP_SIZE:-${SLURM_GPUS:-1}}"
+export MAX_NUM_SEQS="${MAX_NUM_SEQS:-50}"
+export N_PUZZLES="${N_PUZZLES:-50}"
+export N_CANDIDATES="${N_CANDIDATES:-4}"
+export MAX_REFINEMENT_ATTEMPTS="${MAX_REFINEMENT_ATTEMPTS:-2}"
+
+# Model identity flags — consumed by config_llm.py to select the right API
+# parameters (chat_template_kwargs instead of reasoning_effort).
+export MODEL_REPO_ID="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+export MODEL_FAMILY="nemo"
+export TOP_P="0.95"
+
+mkdir -p logs ../outputs
+
+source ../.venv_nemo/bin/activate
+
+echo "Starting vLLM server for $MODEL_REPO_ID (tp=$TP_SIZE, port=$VLLM_PORT)"
+
+vllm serve "$MODEL_REPO_ID" \
+  --host "$VLLM_HOST" \
+  --port "$VLLM_PORT" \
+  --tensor-parallel-size "$TP_SIZE" \
+  --trust-remote-code \
+  --dtype auto \
+  --mamba-ssm-cache-dtype float16 \
+  --kv-cache-dtype fp8 \
+  --enable-chunked-prefill \
+  --async-scheduling \
+  --reasoning-parser-plugin llm/super_v3_reasoning_parser.py \
+  --reasoning-parser super_v3 \
+  --max-model-len 60000 \
+  --max-num-batched-tokens 4096 \
+  --max-num-seqs "$MAX_NUM_SEQS" \
+  --gpu-memory-utilization 0.92 &
+VLLM_PID=$!
+
+echo "Waiting for vLLM server to be ready..."
+for i in $(seq 1 300); do
+    if curl -s "http://${VLLM_HOST}:${VLLM_PORT}/v1/models" > /dev/null 2>&1; then
+        echo "vLLM server ready after ${i}s"
+        break
+    fi
+    if ! kill -0 "$VLLM_PID" 2>/dev/null; then
+        echo "ERROR: vLLM server died unexpectedly" >&2
+        exit 1
+    fi
+    sleep 1
+done
+
+python3 -m batch_pipeline \
+  --n "$N_PUZZLES" \
+  --n-candidates "$N_CANDIDATES" \
+  --max-refinement-attempts "$MAX_REFINEMENT_ATTEMPTS" \
+  --output-file "../outputs/batch_nemo_${SLURM_JOB_ID}.jsonl"
+
+kill "$VLLM_PID" 2>/dev/null || true
+wait "$VLLM_PID" 2>/dev/null || true
+
+echo ""
+echo "Job complete."
