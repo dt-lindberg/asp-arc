@@ -1,5 +1,6 @@
 # Requirements for running vLLM with nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4.
 # Pinning is loose because vLLM pulls in compatible torch/transformers.
-vllm==0.20.0+cu128
+# vllm is installed separately in the job script via local tarball to avoid
+# pip's filename-vs-metadata version mismatch on the +cu128 local version suffix
 huggingface_hub[cli]
 openai>=1.0.0
