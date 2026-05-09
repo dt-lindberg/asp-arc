@@ -21,9 +21,18 @@ final state per puzzle.
     prompt past `max-model-len` and crash the request. The empty response is
     replayed as a "(no response)" placeholder; the thinking is preserved only
     in the JSONL record for that round.
+
+* Async / overlap
+  - main() is async. Each phase consumes results from
+    VLLMEngine.generate_batch_streaming as they arrive (via asyncio.as_completed)
+    rather than waiting for the whole batch.
+  - Clingo validation and JSONL writes are dispatched via asyncio.to_thread
+    so the event loop stays responsive and later vLLM responses keep streaming
+    in while earlier ones are being validated.
 """
 
 import argparse
+import asyncio
 import itertools
 import os
 import time
@@ -177,15 +186,21 @@ def _build_round_feedback(state):
     return feedback, trigger, pair_idx, grid_diff
 
 
-def _process_generation_result(state, thinking, response, row, prompt_template):
+async def _process_generation_result(state, thinking, response, row):
     """Validate a freshly-generated (thinking, response). Mutates state in place.
 
     Returns (asp_code, summary). asp_code is "" on NO_BLOCK; summary is None
     on NO_BLOCK and otherwise the full validate_asp_program() dict.
+
+    * Threading
+      - Clingo runs in a worker thread (asyncio.to_thread) so the event loop
+        keeps reading later vLLM responses while this validation grinds.
     """
     asp_code = _try_extract_asp_block(response)
     summary = (
-        validate_asp_program(asp_code, row.puzzle_name1, row.puzzle_name2)
+        await asyncio.to_thread(
+            validate_asp_program, asp_code, row.puzzle_name1, row.puzzle_name2
+        )
         if asp_code
         else None
     )
@@ -198,13 +213,17 @@ def _process_generation_result(state, thinking, response, row, prompt_template):
     return asp_code, summary
 
 
-def _phase_initial(
+async def _phase_initial(
     engine, chunk, template, prompt_template_path, writer, t0, n_total, n_seen
 ):
     """Run the initial-generation phase for one chunk.
 
     Returns a dict puzzle_states keyed by (puzzle_name1, puzzle_name2). Skips
     puzzles whose extraction fails. Writes one initial record per puzzle.
+
+    * Streaming
+      - States are pre-built so we can find the right one when
+        generate_batch_streaming yields completions out of order.
     """
     rows, src_parquets, initial_messages = [], [], []
     for row, src in chunk:
@@ -222,15 +241,13 @@ def _phase_initial(
     if not initial_messages:
         return {}, n_seen
 
-    results = engine.generate_batch(initial_messages, n=1)
-
+    # Pre-build state for every puzzle in this chunk so streaming results
+    # arriving out of order can be paired up by their batch index.
+    states_by_idx = {}
     puzzle_states = {}
-    for row, src, msgs, candidates in zip(
-        rows, src_parquets, initial_messages, results
+    for idx, (row, src, msgs) in enumerate(
+        zip(rows, src_parquets, initial_messages)
     ):
-        n_seen += 1
-        thinking, response = candidates[0]
-
         state = {
             "row": row,
             "src": src,
@@ -243,7 +260,19 @@ def _phase_initial(
             "round": 0,
             "solved": False,
         }
-        _process_generation_result(state, thinking, response, row, prompt_template_path)
+        states_by_idx[idx] = state
+        puzzle_states[(row.puzzle_name1, row.puzzle_name2)] = state
+
+    async for idx, candidates in engine.generate_batch_streaming(
+        initial_messages, n=1
+    ):
+        n_seen += 1
+        thinking, response = candidates[0]
+        state = states_by_idx[idx]
+        row = state["row"]
+        src = state["src"]
+
+        await _process_generation_result(state, thinking, response, row)
 
         record = _make_record(
             row=row,
@@ -255,7 +284,7 @@ def _phase_initial(
             summary=state["validation"],
             refinement_round=0,
         )
-        writer.write(record)
+        await asyncio.to_thread(writer.write, record)
 
         if state["asp_code"]:
             tag = (
@@ -272,24 +301,24 @@ def _phase_initial(
             f" sid={row.sid}  initial={tag}  {elapsed:.0f}s elapsed"
         )
 
-        puzzle_states[(row.puzzle_name1, row.puzzle_name2)] = state
-
     return puzzle_states, n_seen
 
 
-def _phase_refinement(
+async def _phase_refinement(
     engine, puzzle_states, prompt_template_path, writer, max_refinement, t0
 ):
     """Run refinement rounds until everyone solves or budget exhausts.
 
-    Each round batches all unsolved puzzles into a single generate_batch call.
+    Each round batches all unsolved puzzles into a single streaming call;
+    validation + writes for completed responses overlap with later responses
+    still decoding on the GPU.
     """
     if max_refinement <= 0:
         return
 
     for round_num in range(1, max_refinement + 1):
         batch_msgs = []
-        batch_meta = []  # parallel list: (puzzle_key, feedback, trigger, pair_idx, grid_diff)
+        meta_by_idx = {}  # idx → (puzzle_key, feedback, trigger, pair_idx, grid_diff)
 
         for puzzle_key, state in puzzle_states.items():
             if state["solved"]:
@@ -310,8 +339,9 @@ def _phase_refinement(
                 response_text=state["response"],
                 feedback_message=feedback,
             )
+            idx = len(batch_msgs)
             batch_msgs.append(msgs)
-            batch_meta.append((puzzle_key, feedback, trigger, pair_idx, grid_diff))
+            meta_by_idx[idx] = (puzzle_key, feedback, trigger, pair_idx, grid_diff)
 
         if not batch_msgs:
             break
@@ -320,12 +350,11 @@ def _phase_refinement(
             f"Refinement round {round_num}: sending {len(batch_msgs)} fix prompts"
         )
 
-        ref_results = engine.generate_batch(batch_msgs, n=1)
-
-        for (puzzle_key, feedback, trigger, pair_idx, grid_diff), candidates in zip(
-            batch_meta, ref_results
+        async for idx, candidates in engine.generate_batch_streaming(
+            batch_msgs, n=1
         ):
             thinking, response = candidates[0]
+            puzzle_key, feedback, trigger, pair_idx, grid_diff = meta_by_idx[idx]
             state = puzzle_states[puzzle_key]
             row = state["row"]
             src = state["src"]
@@ -337,9 +366,7 @@ def _phase_refinement(
             state["history"].append((state["response"], feedback))
             state["round"] = round_num
 
-            _process_generation_result(
-                state, thinking, response, row, prompt_template_path
-            )
+            await _process_generation_result(state, thinking, response, row)
 
             record = _make_record(
                 row=row,
@@ -355,7 +382,7 @@ def _phase_refinement(
                 feedback_prompt=feedback,
                 grid_diff=grid_diff,
             )
-            writer.write(record)
+            await asyncio.to_thread(writer.write, record)
 
             elapsed = time.perf_counter() - t0
             if state["solved"]:
@@ -374,7 +401,7 @@ def _phase_refinement(
                 )
 
 
-def main(args):
+async def main(args):
     with open(args.prompt_template, encoding="utf-8") as f:
         template = f.read()
 
@@ -387,11 +414,11 @@ def main(args):
     t0 = time.perf_counter()
 
     for chunk in itertools.batched(sampler, args.chunk_size):
-        puzzle_states, n_seen = _phase_initial(
+        puzzle_states, n_seen = await _phase_initial(
             engine, chunk, template, args.prompt_template, writer, t0, args.n, n_seen
         )
 
-        _phase_refinement(
+        await _phase_refinement(
             engine,
             puzzle_states,
             args.prompt_template,
@@ -411,6 +438,9 @@ def main(args):
     logger.info(
         f"Done: {n_solved_total}/{n_seen} puzzles solved (initial or refinement)."
         f"  Results in {args.output_file}"
+    )
+    logger.info(
+        f"Peak in-flight requests observed: {engine._max_in_flight_seen}/{MAX_NUM_SEQS}"
     )
 
 
@@ -442,4 +472,4 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
     parser.add_argument("--host", default=VLLM_HOST)
     parser.add_argument("--port", default=VLLM_PORT, type=int)
-    main(parser.parse_args())
+    asyncio.run(main(parser.parse_args()))

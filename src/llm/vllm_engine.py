@@ -42,6 +42,11 @@ class VLLMEngine:
         )
         self.sem = asyncio.Semaphore(MAX_NUM_SEQS)
 
+        # In-flight bookkeeping for instrumentation. Updated only between
+        # awaits, so plain integer arithmetic is safe under asyncio.
+        self._in_flight = 0
+        self._max_in_flight_seen = 0
+
         logger.debug(
             f"VLLMEngine client pointing at http://{host}:{port}/v1  "
             f"(seed={self.seed}, max_concurrent={MAX_NUM_SEQS})"
@@ -63,34 +68,74 @@ class VLLMEngine:
 
     async def _one_chat(self, messages, n=1):
         async with self.sem:
-            resp = await self.client.chat.completions.create(
-                model=MODEL_REPO_ID,
-                messages=messages,
-                n=n,
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-                top_p=TOP_P,
-                seed=self.seed,
-                # GPT-OSS uses reasoning_effort; Nemotron uses chat_template_kwargs.
-                extra_body=(
-                    {"top_k": TOP_K, "chat_template_kwargs": {"enable_thinking": True}}
-                    if MODEL_FAMILY == "nemo"
-                    else {
-                        "top_k": TOP_K,
-                        "include_reasoning": True,
-                        "reasoning_effort": REASONING_EFFORT,
-                    }
-                ),
+            self._in_flight += 1
+            if self._in_flight > self._max_in_flight_seen:
+                self._max_in_flight_seen = self._in_flight
+            logger.debug(
+                f"vLLM REQ start  in_flight={self._in_flight}/{MAX_NUM_SEQS}"
             )
-            choices = resp.model_dump()["choices"]
-            return [self._extract_message(c["message"]) for c in choices]
+            try:
+                resp = await self.client.chat.completions.create(
+                    model=MODEL_REPO_ID,
+                    messages=messages,
+                    n=n,
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                    top_p=TOP_P,
+                    seed=self.seed,
+                    # GPT-OSS uses reasoning_effort; Nemotron uses chat_template_kwargs.
+                    extra_body=(
+                        {
+                            "top_k": TOP_K,
+                            "chat_template_kwargs": {"enable_thinking": True},
+                        }
+                        if MODEL_FAMILY == "nemo"
+                        else {
+                            "top_k": TOP_K,
+                            "include_reasoning": True,
+                            "reasoning_effort": REASONING_EFFORT,
+                        }
+                    ),
+                )
+                choices = resp.model_dump()["choices"]
+                return [self._extract_message(c["message"]) for c in choices]
+            finally:
+                self._in_flight -= 1
+                logger.debug(
+                    f"vLLM REQ done   in_flight={self._in_flight}/{MAX_NUM_SEQS}"
+                )
+
+    async def _indexed_chat(self, idx, messages, n=1):
+        """Wrapper that tags _one_chat's result with the request's batch index."""
+        return idx, await self._one_chat(messages, n=n)
+
+    async def generate_batch_streaming(self, messages_list, n=1):
+        """Async generator: yield (idx, candidates) as each request completes.
+
+        * Why this shape
+          - `idx` is the original index into `messages_list`, since
+            asyncio.as_completed reorders by completion time and the caller
+            needs the mapping back to whatever metadata it pre-built.
+          - `candidates` is a list of (thinking, response) tuples of length n
+            (same as generate_batch's per-prompt entry).
+
+        Use this when the caller can do useful CPU work (e.g. Clingo
+        validation via asyncio.to_thread) on each result while later requests
+        are still decoding on the GPU.
+        """
+        tasks = [
+            asyncio.create_task(self._indexed_chat(i, msgs, n=n))
+            for i, msgs in enumerate(messages_list)
+        ]
+        for fut in asyncio.as_completed(tasks):
+            yield await fut
 
     async def generate_batch_async(self, messages_list, n=1):
         tasks = [self._one_chat(messages, n=n) for messages in messages_list]
         return await asyncio.gather(*tasks)
 
     def generate_batch(self, messages_list, n=1):
-        """Generate responses for a batch of conversations.
+        """Generate responses for a batch of conversations (synchronous wrapper).
 
         Args:
             messages_list: list of conversations, each a list of role/content dicts.

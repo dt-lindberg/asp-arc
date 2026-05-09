@@ -20,7 +20,9 @@ Batch mode uses a weighted random sampler across all 150 parquet files, reading 
 ### Step 2 — Prompt & generate ASP
 Builds a translation prompt from a template (`prompts/nvarc_asp_translation.txt`) and sends it to GPT-OSS-120B via the vLLM server. The model is instructed to output a single ` ```asp ``` ` block and to write idiomatic ASP rather than a line-by-line Python translation.
 
-One generation per puzzle. Puzzles are processed in chunks of `MAX_NUM_SEQS`, all of which are sent to vLLM in a single batched call so they share the server's continuous batching.
+One generation per puzzle. Puzzles are processed in chunks of `MAX_NUM_SEQS`, all of which are dispatched to vLLM concurrently so they share the server's continuous batching.
+
+Within a chunk, completions are consumed via `asyncio.as_completed` — the moment a puzzle's response comes back, its Clingo validation and JSONL write start in a worker thread (`asyncio.to_thread`) while the remaining responses are still decoding on the GPU. This overlaps host-side CPU work with vLLM decoding instead of stalling on a `gather` barrier.
 
 ### Step 3 — Validate via Clingo
 Extracts the ASP block from the model response, then runs it against all 30 input-output grid pairs for that puzzle instance. For each pair:
@@ -38,7 +40,23 @@ Puzzles whose initial generation fails (Clingo error, UNSAT, multiple answer set
 - The new user turn carries a category-specific feedback message (Clingo error / UNSAT / multi-answer / grid diff with line-numbered code), or a NO_BLOCK message acknowledging that the cause may be either malformed output or `max_tokens` exhaustion during reasoning.
 - Reasoning traces (`thinking`) are **never** replayed as assistant content — only the visible response is. This avoids a runaway prompt that would exceed `max-model-len` when the previous round burned its full token budget on reasoning.
 
-All unsolved puzzles in a chunk are batched into a single vLLM call per refinement round. The first round that produces a passing program ends refinement for that puzzle.
+All unsolved puzzles in a chunk are batched into a single streaming vLLM call per refinement round; validation + writes overlap with later responses still decoding, the same way as the initial phase. The first round that produces a passing program ends refinement for that puzzle.
+
+### Throughput instrumentation
+`VLLMEngine` tracks the number of in-flight requests and logs it at every request start and finish (at `LOG_LEVEL=debug`, which is the default):
+
+```
+vLLM REQ start  in_flight=37/50
+vLLM REQ done   in_flight=36/50
+```
+
+The asctime prefix from the log formatter pairs each line with a timestamp, so the slurm log is enough to reconstruct concurrency over the whole run. At end of run, `main` also logs the peak in-flight count observed:
+
+```
+Peak in-flight requests observed: 50/50
+```
+
+This is the cheap way to check whether vLLM is being kept busy. If concurrency spends a large fraction of the run below `MAX_NUM_SEQS`, that's GPU idle time — the chunk-boundary stalls inherent to the current phase-based loop. A continuous worker-pool pipeline would close that gap.
 
 ### Output format
 Records for every generation (initial and each refinement round) are appended to a JSONL file (`outputs/batch_<SLURM_JOB_ID>.jsonl`). The unique key is `(puzzle_name1, puzzle_name2, sid, refinement_round)`. Each record:
@@ -136,7 +154,8 @@ src/
     config_llm.py          model & vLLM server settings (MAX_NUM_SEQS from env)
     config_nvarc.py        NVARC data paths & prompt template path
   llm/
-    vllm_engine.py         async vLLM client (OpenAI-compatible)
+    vllm_engine.py         async vLLM client (OpenAI-compatible) with streaming
+                           batch generator and in-flight instrumentation
   prompts/
     nvarc_asp_translation.txt  prompt template for Python→ASP translation
     smoke_test.txt
@@ -148,7 +167,7 @@ src/
     asp_validator.py       orchestrates Clingo validation across all grid pairs
     clingo_runner.py       Clingo ground/solve with threading timeouts
     refinement.py          failure categorization + feedback message builders
-    output_writer.py       append-only JSONL writer
+    output_writer.py       thread-safe append-only JSONL writer
     logger.py
   requirements_vllm.txt
   requirements_clingo_etal.txt
