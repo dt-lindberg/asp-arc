@@ -15,7 +15,12 @@ from config.config_nvarc import NVARC_ASP_PROMPT
 from llm.vllm_engine import VLLMEngine
 from utils.logger import setup_logging, get_logger
 from utils.nvarc_data import load_output_row
-from utils.nvarc_formatting import build_prompt, extract_asp_block, extract_puzzle_xml, extract_python_code
+from utils.nvarc_formatting import (
+    build_prompt,
+    extract_asp_block,
+    extract_puzzle_xml,
+    extract_python_code,
+)
 from utils.asp_validator import validate_asp_program
 
 setup_logging(log_level=os.getenv("LOG_LEVEL", LOG_LEVEL))
@@ -31,7 +36,7 @@ def main(args):
         f"puzzle2={row.puzzle_name2}  sid={row.sid}  reasoning={row.reasoning_level}"
     )
 
-    puzzle_xml  = extract_puzzle_xml(row.prompt)
+    puzzle_xml = extract_puzzle_xml(row.prompt)
     python_code = extract_python_code(row.completion)
 
     with open(args.prompt_template, encoding="utf-8") as f:
@@ -41,7 +46,9 @@ def main(args):
     logger.info(f"Prompt ready ({len(prompt)} chars)")
 
     engine = VLLMEngine(host=args.host, port=args.port, seed=args.seed)
-    [[(thinking, response)]] = engine.generate_batch([[{"role": "user", "content": prompt}]])
+    [[(thinking, response)]] = engine.generate_batch(
+        [[{"role": "user", "content": prompt}]]
+    )
 
     print(SEP)
     print(f"PUZZLE  mix={row.mix_name}  puzzle1={row.puzzle_name1}  sid={row.sid}")
@@ -74,7 +81,9 @@ def main(args):
     summary = validate_asp_program(asp_code, row.puzzle_name1, row.puzzle_name2)
 
     result_tag = "PASS" if summary["passed"] else "FAIL"
-    print(f"RESULT: {result_tag}  ({summary['correct']}/{summary['total']} pairs correct)")
+    print(
+        f"RESULT: {result_tag}  ({summary['correct']}/{summary['total']} pairs correct)"
+    )
 
     for msg in summary["clingo_errors"]:
         print(f"  • {msg}")
@@ -84,10 +93,17 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NVARC → ASP translation pipeline")
-    parser.add_argument("--row-index", type=int, default=0,
-                        help="Row index within the first outputs/ parquet file")
-    parser.add_argument("--prompt-template", default=NVARC_ASP_PROMPT,
-                        help="Path to the prompt template file")
+    parser.add_argument(
+        "--row-index",
+        type=int,
+        default=0,
+        help="Row index within the first outputs/ parquet file",
+    )
+    parser.add_argument(
+        "--prompt-template",
+        default=NVARC_ASP_PROMPT,
+        help="Path to the prompt template file",
+    )
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
     parser.add_argument("--host", default=VLLM_HOST)
     parser.add_argument("--port", default=VLLM_PORT, type=int)

@@ -12,9 +12,7 @@ logger = get_logger(__name__)
 
 def _check_answer_set(answer_set: list[str], expected_grid: list) -> bool:
     expected = {
-        (r, c): v
-        for r, row in enumerate(expected_grid)
-        for c, v in enumerate(row)
+        (r, c): v for r, row in enumerate(expected_grid) for c, v in enumerate(row)
     }
     actual = {}
     for atom in answer_set:
@@ -75,9 +73,9 @@ def validate_asp_program(asp_code: str, puzzle_name1: str, puzzle_name2: str) ->
             seen.add(key)
             unique_errors.append(m)
     return {
-        "total":        len(pairs),
-        "correct":      n_correct,
-        "passed":       len(pairs) > 0 and n_correct == len(pairs),
-        "pairs":        results,
+        "total": len(pairs),
+        "correct": n_correct,
+        "passed": len(pairs) > 0 and n_correct == len(pairs),
+        "pairs": results,
         "clingo_errors": unique_errors,
     }

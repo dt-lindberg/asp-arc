@@ -11,8 +11,16 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_COLUMNS = ["mix_name", "puzzle_name1", "puzzle_name2", "model_name",
-            "reasoning_level", "prompt", "completion", "sid"]
+_COLUMNS = [
+    "mix_name",
+    "puzzle_name1",
+    "puzzle_name2",
+    "model_name",
+    "reasoning_level",
+    "prompt",
+    "completion",
+    "sid",
+]
 
 
 def load_output_row(row_index: int = 0) -> pd.Series:
@@ -32,7 +40,9 @@ def load_grid_pairs(puzzle_name1: str, puzzle_name2: str) -> list[tuple]:
       grids/<puzzle_name1>/<puzzle_name1>_<puzzle_name2>.json
     Each JSON file contains ~30 pairs.
     """
-    path = os.path.join(NVARC_GRIDS_DIR, puzzle_name1, f"{puzzle_name1}_{puzzle_name2}.json")
+    path = os.path.join(
+        NVARC_GRIDS_DIR, puzzle_name1, f"{puzzle_name1}_{puzzle_name2}.json"
+    )
     if not os.path.isfile(path):
         raise FileNotFoundError(f"Grid file not found: {path}")
     with open(path) as f:

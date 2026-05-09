@@ -16,9 +16,7 @@ def parse_output_atoms(atoms: list[str]) -> dict:
 def compute_grid_diff(expected_grid: list, actual_atoms: list[str]) -> list[dict]:
     """Return list of {row, col, expected, got} for deviating cells."""
     expected = {
-        (r, c): v
-        for r, row in enumerate(expected_grid)
-        for c, v in enumerate(row)
+        (r, c): v for r, row in enumerate(expected_grid) for c, v in enumerate(row)
     }
     actual = parse_output_atoms(actual_atoms)
     diffs = []
@@ -49,13 +47,20 @@ def categorize_first_failure(pairs: list[dict]) -> tuple:
             return ("syntax_error", idx, {"error_messages": error_msgs})
 
         if status == "wrong_count(0)":
-            return ("unsat", idx, {"message": "No answer sets (UNSAT) — program is over-constrained."})
+            return (
+                "unsat",
+                idx,
+                {"message": "No answer sets (UNSAT) — program is over-constrained."},
+            )
 
         if status.startswith("wrong_count("):
             count = status.replace("wrong_count(", "").replace(")", "")
             models = pair.get("actual_atoms", [])
-            details = {"count": int(count), "message": f"{count} answer sets (under-constrained).",
-                       "models": models}
+            details = {
+                "count": int(count),
+                "message": f"{count} answer sets (under-constrained).",
+                "models": models,
+            }
             return ("multi_answer_set", idx, details)
 
         if status == "wrong_output":
@@ -69,7 +74,7 @@ def format_numbered_code(code: str) -> str:
     """Add line numbers to code."""
     lines = code.splitlines()
     width = max(4, len(str(len(lines))))
-    return "\n".join(f"{i+1:>{width}}| {line}" for i, line in enumerate(lines))
+    return "\n".join(f"{i + 1:>{width}}| {line}" for i, line in enumerate(lines))
 
 
 def format_grid(grid: list, title: str = None) -> str:
@@ -87,16 +92,14 @@ def format_diff_table(expected_grid: list, actual_atoms: list[str]) -> str:
     """Format a human-readable diff table between expected and actual grids."""
     actual = parse_output_atoms(actual_atoms)
     expected = {
-        (r, c): v
-        for r, row in enumerate(expected_grid)
-        for c, v in enumerate(row)
+        (r, c): v for r, row in enumerate(expected_grid) for c, v in enumerate(row)
     }
     max_r = max(r for r, _ in expected.keys()) if expected else 0
     max_c = max(c for _, c in expected.keys()) if expected else 0
 
     lines = []
     lines.append(f"  {'Row':>4s} {'Col':>4s} {'Expected':>10s} {'Got':>10s}")
-    lines.append(f"  {'-'*4} {'-'*4} {'-'*10} {'-'*10}")
+    lines.append(f"  {'-' * 4} {'-' * 4} {'-' * 10} {'-' * 10}")
 
     n_diffs = 0
     for r in range(max_r + 1):
@@ -158,10 +161,14 @@ def build_feedback_message(
         models = details.get("models", [])
         if models:
             lines.append(f"  First answer set ({len(models[0])} atoms):")
-            lines.append(f"    {', '.join(models[0][:20])}{'...' if len(models[0]) > 20 else ''}")
+            lines.append(
+                f"    {', '.join(models[0][:20])}{'...' if len(models[0]) > 20 else ''}"
+            )
             if len(models) > 1:
                 lines.append(f"  Second answer set ({len(models[1])} atoms):")
-                lines.append(f"    {', '.join(models[1][:20])}{'...' if len(models[1]) > 20 else ''}")
+                lines.append(
+                    f"    {', '.join(models[1][:20])}{'...' if len(models[1]) > 20 else ''}"
+                )
         lines.append("")
 
     elif trigger == "wrong_cells":
@@ -189,10 +196,16 @@ def build_feedback_message(
 
     lines.append("## Instructions")
     lines.append("1. Identify the root cause of the failure.")
-    lines.append("2. Fix the program so it produces exactly one answer set with correct output/3 atoms for ALL input/output pairs.")
+    lines.append(
+        "2. Fix the program so it produces exactly one answer set with correct output/3 atoms for ALL input/output pairs."
+    )
     lines.append("3. Provide the corrected ASP program in a **single** ```asp block.")
-    lines.append("4. Do NOT change the overall structure unless necessary. Prefer surgical fixes.")
-    lines.append("5. Verify EACH rule for variable safety (every variable must appear in a positive, non-arithmetic body literal).")
+    lines.append(
+        "4. Do NOT change the overall structure unless necessary. Prefer surgical fixes."
+    )
+    lines.append(
+        "5. Verify EACH rule for variable safety (every variable must appear in a positive, non-arithmetic body literal)."
+    )
 
     return "\n".join(lines)
 

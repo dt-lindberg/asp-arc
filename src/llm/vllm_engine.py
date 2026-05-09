@@ -49,11 +49,7 @@ class VLLMEngine:
 
     @staticmethod
     def _extract_message(msg_dict):
-        reasoning = (
-            msg_dict.get("reasoning_content")
-            or msg_dict.get("reasoning")
-            or ""
-        )
+        reasoning = msg_dict.get("reasoning_content") or msg_dict.get("reasoning") or ""
         content = msg_dict.get("content", "")
         if isinstance(content, list):
             text = "".join(
@@ -79,7 +75,11 @@ class VLLMEngine:
                 extra_body=(
                     {"top_k": TOP_K, "chat_template_kwargs": {"enable_thinking": True}}
                     if MODEL_FAMILY == "nemo"
-                    else {"top_k": TOP_K, "include_reasoning": True, "reasoning_effort": REASONING_EFFORT}
+                    else {
+                        "top_k": TOP_K,
+                        "include_reasoning": True,
+                        "reasoning_effort": REASONING_EFFORT,
+                    }
                 ),
             )
             choices = resp.model_dump()["choices"]
@@ -107,6 +107,8 @@ class VLLMEngine:
 
         t_gen = time.perf_counter() - t0
         total = sum(len(r) for r in results)
-        logger.debug(f"Generated {total} responses across {len(results)} prompts in {t_gen:.2f}s")
+        logger.debug(
+            f"Generated {total} responses across {len(results)} prompts in {t_gen:.2f}s"
+        )
 
         return results

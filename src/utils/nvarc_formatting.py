@@ -12,16 +12,16 @@ def extract_asp_block(response: str) -> str:
     if len(blocks) == 0:
         raise ValueError("No ```asp block found in response")
     if len(blocks) > 1:
-        raise ValueError(f"{len(blocks)} ```asp blocks found in response (expected exactly 1)")
+        raise ValueError(
+            f"{len(blocks)} ```asp blocks found in response (expected exactly 1)"
+        )
     return blocks[0].strip()
 
 
 def grid_to_input_facts(grid: list) -> str:
     """Convert a 2D grid to input/3 facts plus color/1 facts for all ARC colors."""
     lines = [
-        f"input({r},{c},{v})."
-        for r, row in enumerate(grid)
-        for c, v in enumerate(row)
+        f"input({r},{c},{v})." for r, row in enumerate(grid) for c, v in enumerate(row)
     ]
     lines.append("color(0..9).")
     return "\n".join(lines)
@@ -44,8 +44,6 @@ def extract_python_code(completion: str) -> str:
 
 
 def build_prompt(template: str, puzzle_xml: str, python_code: str) -> str:
-    return (
-        template
-        .replace("<<<PUZZLE_XML>>>", puzzle_xml)
-        .replace("<<<PYTHON_CODE>>>", python_code)
+    return template.replace("<<<PUZZLE_XML>>>", puzzle_xml).replace(
+        "<<<PYTHON_CODE>>>", python_code
     )

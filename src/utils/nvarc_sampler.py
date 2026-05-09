@@ -44,9 +44,7 @@ def sample_puzzles(n: int):
             if key in seen:
                 continue
 
-            grid_path = os.path.join(
-                NVARC_GRIDS_DIR, str(p1), f"{p1}_{p2}.json"
-            )
+            grid_path = os.path.join(NVARC_GRIDS_DIR, str(p1), f"{p1}_{p2}.json")
             if not os.path.isfile(grid_path):
                 continue
 
@@ -58,8 +56,6 @@ def sample_puzzles(n: int):
             yield row, os.path.basename(file_path)
 
     if n_yielded < n:
-        logger.warning(
-            f"Only yielded {n_yielded}/{n} puzzles — exhausted all parquets"
-        )
+        logger.warning(f"Only yielded {n_yielded}/{n} puzzles — exhausted all parquets")
 
     logger.debug(f"Sampled {n_yielded} unique puzzles (requested {n})")
