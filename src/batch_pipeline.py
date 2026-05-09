@@ -1,5 +1,5 @@
 """
-Single-candidate NVARC → ASP batch pipeline with refinement loop.
+Single-candidate NVARC → ASP batch pipeline with refinement.
 
 Per puzzle: one initial generation, then up to MAX_REFINEMENT_ATTEMPTS
 refinement turns on a multi-turn conversation thread fed by Clingo feedback.
@@ -14,6 +14,18 @@ Records are appended to JSONL after every generation (initial and refinement),
 so progress survives a crash and the file alone is enough to reconstruct the
 final state per puzzle.
 
+* Concurrency model
+  - Every puzzle is submitted as an independent asyncio task at the start of
+    the run. There is no chunking and no client-side worker pool.
+  - vLLM's continuous-batching scheduler runs --max-num-seqs requests in
+    parallel and queues the rest in its waiting queue. As running requests
+    finish, the scheduler admits the next pending one in the same step.
+  - Refinement requests for a failing puzzle are submitted from inside that
+    puzzle's coroutine, so they enter vLLM's queue alongside any initial
+    requests still pending for other puzzles.
+  - Net effect: vLLM stays at full GPU concurrency for the whole run, and
+    the client-side code stays flat.
+
 * Edge case worth flagging
   - When the model's `max_tokens` budget is exhausted during reasoning, the
     visible `response` field is empty while `thinking` is huge. We NEVER feed
@@ -21,25 +33,15 @@ final state per puzzle.
     prompt past `max-model-len` and crash the request. The empty response is
     replayed as a "(no response)" placeholder; the thinking is preserved only
     in the JSONL record for that round.
-
-* Async / overlap
-  - main() is async. Each phase consumes results from
-    VLLMEngine.generate_batch_streaming as they arrive (via asyncio.as_completed)
-    rather than waiting for the whole batch.
-  - Clingo validation and JSONL writes are dispatched via asyncio.to_thread
-    so the event loop stays responsive and later vLLM responses keep streaming
-    in while earlier ones are being validated.
 """
 
 import argparse
 import asyncio
-import itertools
 import os
 import time
 
 from config.config import LOG_LEVEL, MAX_REFINEMENT_ATTEMPTS, SEED as DEFAULT_SEED
 from config.config_llm import (
-    MAX_NUM_SEQS,
     MAX_TOKENS,
     MODEL_REPO_ID,
     REASONING_EFFORT,
@@ -144,29 +146,25 @@ def _try_extract_asp_block(response):
         return ""
 
 
-def _build_round_feedback(state):
+def _build_round_feedback(row, asp_code, summary, round_num):
     """Build the user feedback for the next refinement turn.
 
-    Returns (feedback_text, trigger, pair_index, grid_diff).
+    Returns (feedback_text, trigger, pair_index, grid_diff), or None if all
+    pairs already passed (caller should not invoke us in that case but we
+    guard anyway).
 
     * Three cases
-      - state has no ASP block (NO_BLOCK)            → ambiguous-cause feedback
-      - state's program failed Clingo validation     → category-specific feedback
-      - state's program passed                       → caller should not call us
+      - summary is None (NO_BLOCK)                  → ambiguous-cause feedback
+      - summary failed Clingo validation             → category-specific feedback
+      - summary passed                               → returns None
     """
-    validation = state["validation"]
-
-    # NO_BLOCK: response was missing or malformed; cause is ambiguous.
-    if validation is None:
+    if summary is None:
         return build_no_block_feedback_message(), NO_BLOCK_TRIGGER, -1, None
 
-    trigger, pair_idx, details = categorize_first_failure(validation["pairs"])
+    trigger, pair_idx, details = categorize_first_failure(summary["pairs"])
     if trigger is None:
-        # Should not happen: caller filters out solved puzzles.
-        return None, None, -1, None
+        return None
 
-    # wrong_cells / wrong_count / unsat / syntax_error all need the failing pair grids.
-    row = state["row"]
     all_pairs = load_grid_pairs(row.puzzle_name1, row.puzzle_name2)
     input_grid, expected_grid = all_pairs[pair_idx]
 
@@ -175,104 +173,95 @@ def _build_round_feedback(state):
         grid_diff = compute_grid_diff(expected_grid, details["actual_atoms"])
 
     feedback = build_feedback_message(
-        asp_code=state["asp_code"],
+        asp_code=asp_code,
         trigger=trigger,
         pair_index=pair_idx,
         details=details,
         input_grid=input_grid,
         expected_grid=expected_grid,
-        round_num=state["round"] + 1,
+        round_num=round_num,
     )
     return feedback, trigger, pair_idx, grid_diff
 
 
-async def _process_generation_result(state, thinking, response, row):
-    """Validate a freshly-generated (thinking, response). Mutates state in place.
-
-    Returns (asp_code, summary). asp_code is "" on NO_BLOCK; summary is None
-    on NO_BLOCK and otherwise the full validate_asp_program() dict.
-
-    * Threading
-      - Clingo runs in a worker thread (asyncio.to_thread) so the event loop
-        keeps reading later vLLM responses while this validation grinds.
-    """
-    asp_code = _try_extract_asp_block(response)
-    summary = (
-        await asyncio.to_thread(
-            validate_asp_program, asp_code, row.puzzle_name1, row.puzzle_name2
-        )
-        if asp_code
-        else None
-    )
-    state["asp_code"] = asp_code
-    state["response"] = response
-    state["thinking"] = thinking
-    state["validation"] = summary
-    if summary is not None and summary["passed"]:
-        state["solved"] = True
-    return asp_code, summary
-
-
-async def _phase_initial(
-    engine, chunk, template, prompt_template_path, writer, t0, n_total, n_seen
+async def handle_puzzle(
+    engine,
+    row,
+    src,
+    template,
+    prompt_template_path,
+    writer,
+    max_refinement,
+    t0,
+    n_total,
+    counter,
 ):
-    """Run the initial-generation phase for one chunk.
+    """Run one puzzle through gen → validate → (refine → gen → validate)* end-to-end.
 
-    Returns a dict puzzle_states keyed by (puzzle_name1, puzzle_name2). Skips
-    puzzles whose extraction fails. Writes one initial record per puzzle.
+    Each call is an independent coroutine. vLLM's scheduler queues the
+    underlying chat requests across all concurrent puzzles, so concurrency
+    here equals --max-num-seqs (running) plus whatever vLLM is willing to
+    keep waiting (capped client-side by VLLMEngine.sem).
 
-    * Streaming
-      - States are pre-built so we can find the right one when
-        generate_batch_streaming yields completions out of order.
+    * History bookkeeping
+      - history holds (prev_response, prev_feedback) pairs from earlier
+        rounds. Each pair represents an assistant turn followed by the user
+        feedback that triggered the next round.
+      - last_response is the most recent assistant response, replayed as
+        response_text in the next refinement build.
+      - thinking is intentionally never replayed — see module docstring.
     """
-    rows, src_parquets, initial_messages = [], [], []
-    for row, src in chunk:
+    p1, p2 = row.puzzle_name1, row.puzzle_name2
+
+    try:
+        puzzle_xml = extract_puzzle_xml(row.prompt)
+        python_code = extract_python_code(row.completion)
+        prompt = build_prompt(template, puzzle_xml, python_code)
+    except ValueError as e:
+        logger.warning(f"Skipping {p1}/{p2}: {e}")
+        counter["skipped"] += 1
+        return
+
+    initial_msgs = [{"role": "user", "content": prompt}]
+    history = []
+    last_response = ""
+    asp_code = ""
+    summary = None
+    feedback = None
+    trigger = None
+    pair_idx = None
+    grid_diff = None
+
+    for round_num in range(max_refinement + 1):
+        if round_num == 0:
+            msgs = initial_msgs
+            trigger = pair_idx = grid_diff = feedback = None
+        else:
+            fb = _build_round_feedback(row, asp_code, summary, round_num)
+            if fb is None:
+                # All pairs already passed — caller shouldn't reach here.
+                break
+            feedback, trigger, pair_idx, grid_diff = fb
+            msgs = build_refinement_messages(
+                initial_messages=initial_msgs,
+                conversation_history=history,
+                response_text=last_response,
+                feedback_message=feedback,
+            )
+
         try:
-            puzzle_xml = extract_puzzle_xml(row.prompt)
-            python_code = extract_python_code(row.completion)
-            prompt = build_prompt(template, puzzle_xml, python_code)
-        except ValueError as e:
-            logger.warning(f"Skipping {row.puzzle_name1}/{row.puzzle_name2}: {e}")
-            continue
-        rows.append(row)
-        src_parquets.append(src)
-        initial_messages.append([{"role": "user", "content": prompt}])
+            thinking, response = await engine.chat_async(msgs)
+        except Exception as e:
+            logger.error(f"{p1}/{p2} round {round_num}: vLLM error — {e}")
+            counter["errored"] += 1
+            return
 
-    if not initial_messages:
-        return {}, n_seen
-
-    # Pre-build state for every puzzle in this chunk so streaming results
-    # arriving out of order can be paired up by their batch index.
-    states_by_idx = {}
-    puzzle_states = {}
-    for idx, (row, src, msgs) in enumerate(
-        zip(rows, src_parquets, initial_messages)
-    ):
-        state = {
-            "row": row,
-            "src": src,
-            "initial_msgs": msgs,
-            "asp_code": "",
-            "response": "",
-            "thinking": "",
-            "validation": None,
-            "history": [],
-            "round": 0,
-            "solved": False,
-        }
-        states_by_idx[idx] = state
-        puzzle_states[(row.puzzle_name1, row.puzzle_name2)] = state
-
-    async for idx, candidates in engine.generate_batch_streaming(
-        initial_messages, n=1
-    ):
-        n_seen += 1
-        thinking, response = candidates[0]
-        state = states_by_idx[idx]
-        row = state["row"]
-        src = state["src"]
-
-        await _process_generation_result(state, thinking, response, row)
+        asp_code = _try_extract_asp_block(response)
+        summary = (
+            await asyncio.to_thread(validate_asp_program, asp_code, p1, p2)
+            if asp_code
+            else None
+        )
 
         record = _make_record(
             row=row,
@@ -280,125 +269,49 @@ async def _phase_initial(
             prompt_template=prompt_template_path,
             response=response,
             thinking=thinking,
-            asp_code=state["asp_code"],
-            summary=state["validation"],
-            refinement_round=0,
+            asp_code=asp_code,
+            summary=summary,
+            refinement_round=round_num,
+            trigger=trigger,
+            pair_index=pair_idx,
+            feedback_prompt=feedback,
+            grid_diff=grid_diff,
         )
         await asyncio.to_thread(writer.write, record)
 
-        if state["asp_code"]:
-            tag = (
-                f"PASS({state['validation']['correct']}/{state['validation']['total']})"
-                if state["solved"]
-                else f"FAIL({state['validation']['correct']}/{state['validation']['total']})"
+        elapsed = time.perf_counter() - t0
+        phase = "initial" if round_num == 0 else f"refine r{round_num}"
+
+        if summary and summary["passed"]:
+            counter["solved"] += 1
+            counter["done"] += 1
+            logger.info(
+                f"[{counter['done']}/{n_total}] {p1}/{p2} sid={row.sid}"
+                f"  SOLVED at {phase}  {elapsed:.0f}s"
+            )
+            return
+
+        if asp_code:
+            logger.info(
+                f"  {p1}/{p2} {phase}: FAIL({summary['correct']}/{summary['total']})"
+                f"  {elapsed:.0f}s"
             )
         else:
-            tag = "NO_BLOCK"
+            logger.info(f"  {p1}/{p2} {phase}: NO_BLOCK  {elapsed:.0f}s")
 
-        elapsed = time.perf_counter() - t0
-        logger.info(
-            f"[{n_seen}/{n_total}] {row.puzzle_name1}/{row.puzzle_name2}"
-            f" sid={row.sid}  initial={tag}  {elapsed:.0f}s elapsed"
-        )
+        # Append (response that was just used as response_text, feedback that
+        # triggered this round) BEFORE updating last_response. Keeps the
+        # alternation clean for the next refinement turn.
+        if round_num >= 1:
+            history.append((last_response, feedback))
+        last_response = response
 
-    return puzzle_states, n_seen
-
-
-async def _phase_refinement(
-    engine, puzzle_states, prompt_template_path, writer, max_refinement, t0
-):
-    """Run refinement rounds until everyone solves or budget exhausts.
-
-    Each round batches all unsolved puzzles into a single streaming call;
-    validation + writes for completed responses overlap with later responses
-    still decoding on the GPU.
-    """
-    if max_refinement <= 0:
-        return
-
-    for round_num in range(1, max_refinement + 1):
-        batch_msgs = []
-        meta_by_idx = {}  # idx → (puzzle_key, feedback, trigger, pair_idx, grid_diff)
-
-        for puzzle_key, state in puzzle_states.items():
-            if state["solved"]:
-                continue
-
-            feedback, trigger, pair_idx, grid_diff = _build_round_feedback(state)
-            if feedback is None:
-                continue
-
-            # Build the multi-turn messages.
-            #   initial + (prev_resp, prev_feedback) pairs from history
-            #   + (current state.response, new feedback)
-            # Note: state.response is replayed as the latest assistant turn.
-            # state.thinking is intentionally never replayed — see module docstring.
-            msgs = build_refinement_messages(
-                initial_messages=state["initial_msgs"],
-                conversation_history=state["history"],
-                response_text=state["response"],
-                feedback_message=feedback,
-            )
-            idx = len(batch_msgs)
-            batch_msgs.append(msgs)
-            meta_by_idx[idx] = (puzzle_key, feedback, trigger, pair_idx, grid_diff)
-
-        if not batch_msgs:
-            break
-
-        logger.info(
-            f"Refinement round {round_num}: sending {len(batch_msgs)} fix prompts"
-        )
-
-        async for idx, candidates in engine.generate_batch_streaming(
-            batch_msgs, n=1
-        ):
-            thinking, response = candidates[0]
-            puzzle_key, feedback, trigger, pair_idx, grid_diff = meta_by_idx[idx]
-            state = puzzle_states[puzzle_key]
-            row = state["row"]
-            src = state["src"]
-
-            # Append (old response, feedback used this round) to history BEFORE
-            # we overwrite state.response. This pairs each prior assistant turn
-            # with the feedback that followed it, keeping the alternation clean
-            # for build_refinement_messages on subsequent rounds.
-            state["history"].append((state["response"], feedback))
-            state["round"] = round_num
-
-            await _process_generation_result(state, thinking, response, row)
-
-            record = _make_record(
-                row=row,
-                source_parquet=src,
-                prompt_template=prompt_template_path,
-                response=response,
-                thinking=thinking,
-                asp_code=state["asp_code"],
-                summary=state["validation"],
-                refinement_round=round_num,
-                trigger=trigger,
-                pair_index=pair_idx,
-                feedback_prompt=feedback,
-                grid_diff=grid_diff,
-            )
-            await asyncio.to_thread(writer.write, record)
-
-            elapsed = time.perf_counter() - t0
-            if state["solved"]:
-                logger.info(
-                    f"  Refine r{round_num} {puzzle_key} SOLVED  {elapsed:.0f}s elapsed"
-                )
-            elif state["asp_code"]:
-                v = state["validation"]
-                logger.info(
-                    f"  Refine r{round_num} {puzzle_key}: FAIL({v['correct']}/{v['total']})"
-                    f"  trigger={trigger}  {elapsed:.0f}s elapsed"
-                )
-            else:
-                logger.info(
-                    f"  Refine r{round_num} {puzzle_key}: NO_BLOCK  {elapsed:.0f}s elapsed"
-                )
+    counter["done"] += 1
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        f"[{counter['done']}/{n_total}] {p1}/{p2} sid={row.sid}"
+        f"  UNSOLVED after {max_refinement} refinement(s)  {elapsed:.0f}s"
+    )
 
 
 async def main(args):
@@ -407,40 +320,47 @@ async def main(args):
 
     writer = OutputWriter(args.output_file)
     engine = VLLMEngine(host=args.host, port=args.port, seed=args.seed)
-    sampler = sample_puzzles(args.n)
 
-    n_seen = 0
-    n_solved_total = 0
+    # Materialize the sampler so we know n_total before kicking off tasks.
+    # Memory cost: ~30 KB per row × N puzzles; fine for 5 K and well under 1 GB.
+    puzzles = list(sample_puzzles(args.n))
+    n_total = len(puzzles)
+
+    counter = {"done": 0, "solved": 0, "skipped": 0, "errored": 0}
     t0 = time.perf_counter()
 
-    for chunk in itertools.batched(sampler, args.chunk_size):
-        puzzle_states, n_seen = await _phase_initial(
-            engine, chunk, template, args.prompt_template, writer, t0, args.n, n_seen
+    tasks = [
+        asyncio.create_task(
+            handle_puzzle(
+                engine,
+                row,
+                src,
+                template,
+                args.prompt_template,
+                writer,
+                args.max_refinement_attempts,
+                t0,
+                n_total,
+                counter,
+            )
         )
+        for row, src in puzzles
+    ]
 
-        await _phase_refinement(
-            engine,
-            puzzle_states,
-            args.prompt_template,
-            writer,
-            args.max_refinement_attempts,
-            t0,
-        )
+    logger.info(f"Submitted {n_total} puzzles to vLLM. Awaiting results...")
 
-        n_solved_chunk = sum(1 for s in puzzle_states.values() if s["solved"])
-        n_solved_total += n_solved_chunk
-        elapsed = time.perf_counter() - t0
-        logger.info(
-            f"Chunk done: {n_solved_chunk}/{len(puzzle_states)} solved."
-            f"  Running total: {n_solved_total}/{n_seen}  ({elapsed:.0f}s elapsed)"
-        )
+    await asyncio.gather(*tasks)
 
+    elapsed = time.perf_counter() - t0
+    unsolved = counter["done"] - counter["solved"]
     logger.info(
-        f"Done: {n_solved_total}/{n_seen} puzzles solved (initial or refinement)."
-        f"  Results in {args.output_file}"
+        f"Done in {elapsed:.0f}s.  "
+        f"solved={counter['solved']}/{n_total}, unsolved={unsolved}, "
+        f"skipped={counter['skipped']}, errored={counter['errored']}.  "
+        f"Results in {args.output_file}"
     )
     logger.info(
-        f"Peak in-flight requests observed: {engine._max_in_flight_seen}/{MAX_NUM_SEQS}"
+        f"Peak in-flight requests (client side): {engine._max_in_flight_seen}"
     )
 
 
@@ -455,12 +375,6 @@ if __name__ == "__main__":
         "--output-file",
         default="../outputs/batch_results.jsonl",
         help="Output JSONL file (appended to if it already exists)",
-    )
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=MAX_NUM_SEQS,
-        help="Puzzles per vLLM batch (default: MAX_NUM_SEQS)",
     )
     parser.add_argument(
         "--max-refinement-attempts",

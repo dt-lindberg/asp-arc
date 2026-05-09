@@ -20,9 +20,9 @@ Batch mode uses a weighted random sampler across all 150 parquet files, reading 
 ### Step 2 — Prompt & generate ASP
 Builds a translation prompt from a template (`prompts/nvarc_asp_translation.txt`) and sends it to GPT-OSS-120B via the vLLM server. The model is instructed to output a single ` ```asp ``` ` block and to write idiomatic ASP rather than a line-by-line Python translation.
 
-One generation per puzzle. Puzzles are processed in chunks of `MAX_NUM_SEQS`, all of which are dispatched to vLLM concurrently so they share the server's continuous batching.
+One generation per puzzle. Every puzzle is submitted as an independent `asyncio` task at the start of the run — there is no chunking and no client-side concurrency cap. **vLLM's continuous-batching scheduler is the queue:** it runs `--max-num-seqs` requests concurrently on the GPU and parks the rest in its waiting queue, admitting the next pending request the moment a running one finishes. (httpx's connection pool, default `max_connections=100`, bounds how many requests are in transit to vLLM at any moment; everything else queues client-side until a connection is free. For typical `MAX_NUM_SEQS` values this is plenty.)
 
-Within a chunk, completions are consumed via `asyncio.as_completed` — the moment a puzzle's response comes back, its Clingo validation and JSONL write start in a worker thread (`asyncio.to_thread`) while the remaining responses are still decoding on the GPU. This overlaps host-side CPU work with vLLM decoding instead of stalling on a `gather` barrier.
+When a puzzle's response comes back, its Clingo validation and JSONL write run in a worker thread (`asyncio.to_thread`) while the rest of the puzzles are still decoding on the GPU. Refinement requests for failing puzzles are submitted from inside that puzzle's coroutine, so they enter vLLM's queue alongside any initial requests still pending for other puzzles.
 
 ### Step 3 — Validate via Clingo
 Extracts the ASP block from the model response, then runs it against all 30 input-output grid pairs for that puzzle instance. For each pair:
@@ -40,23 +40,28 @@ Puzzles whose initial generation fails (Clingo error, UNSAT, multiple answer set
 - The new user turn carries a category-specific feedback message (Clingo error / UNSAT / multi-answer / grid diff with line-numbered code), or a NO_BLOCK message acknowledging that the cause may be either malformed output or `max_tokens` exhaustion during reasoning.
 - Reasoning traces (`thinking`) are **never** replayed as assistant content — only the visible response is. This avoids a runaway prompt that would exceed `max-model-len` when the previous round burned its full token budget on reasoning.
 
-All unsolved puzzles in a chunk are batched into a single streaming vLLM call per refinement round; validation + writes overlap with later responses still decoding, the same way as the initial phase. The first round that produces a passing program ends refinement for that puzzle.
+There are no separate refinement phases — each puzzle's coroutine simply loops `gen → validate → maybe-build-feedback → gen → ...` until it solves or hits the round budget. Refinement requests share vLLM's queue with initial requests from other puzzles, so the GPU stays fully utilized regardless of how many puzzles are at which stage.
 
 ### Throughput instrumentation
 `VLLMEngine` tracks the number of in-flight requests and logs it at every request start and finish (at `LOG_LEVEL=debug`, which is the default):
 
 ```
-vLLM REQ start  in_flight=37/50
-vLLM REQ done   in_flight=36/50
+vLLM REQ start  in_flight=87
+vLLM REQ done   in_flight=86
 ```
 
-The asctime prefix from the log formatter pairs each line with a timestamp, so the slurm log is enough to reconstruct concurrency over the whole run. At end of run, `main` also logs the peak in-flight count observed:
+There's no fixed cap to compare against — the count is simply "requests we've submitted but not gotten a response back for yet." Of these, `--max-num-seqs` are running on the GPU at any moment and the rest are queued (in vLLM's waiting queue, or earlier in httpx's pending-connection queue).
+
+The asctime prefix from the log formatter pairs each line with a timestamp, so the slurm log is enough to reconstruct concurrency over the run. At end of run, `main` also logs the peak in-flight count observed:
 
 ```
-Peak in-flight requests observed: 50/50
+Peak in-flight requests (client side): 100
 ```
 
-This is the cheap way to check whether vLLM is being kept busy. If concurrency spends a large fraction of the run below `MAX_NUM_SEQS`, that's GPU idle time — the chunk-boundary stalls inherent to the current phase-based loop. A continuous worker-pool pipeline would close that gap.
+Diagnostics:
+- **Peak ≈ httpx pool size (100 by default)** → submission rate is the limit; vLLM's queue is fed continuously, GPU stays busy. This is the normal steady state.
+- **Peak ≈ `MAX_NUM_SEQS`** → vLLM is running everything we send without queueing (puzzles finish faster than refinement requests are submitted). GPU still busy but has no buffer; rare in practice.
+- **Peak well below `MAX_NUM_SEQS`** → not enough work is being submitted (early run-up, or end-of-run drain).
 
 ### Output format
 Records for every generation (initial and each refinement round) are appended to a JSONL file (`outputs/batch_<SLURM_JOB_ID>.jsonl`). The unique key is `(puzzle_name1, puzzle_name2, sid, refinement_round)`. Each record:
@@ -120,7 +125,7 @@ All tuneable parameters are read from environment variables. The SLURM jobs expo
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_NUM_SEQS` | `8` / `20` | Concurrent sequences — sets both the vLLM `--max-num-seqs` and the client semaphore |
+| `MAX_NUM_SEQS` | `8` / `50` | vLLM `--max-num-seqs` (parallel decodes on the GPU). No client-side cap — the script submits every puzzle's request immediately and lets vLLM and httpx handle queueing |
 | `REASONING_EFFORT` | `high` | GPT-OSS reasoning budget: `low`, `medium`, or `high` |
 | `VLLM_HOST` | `127.0.0.1` | vLLM server host |
 | `VLLM_PORT` | `8001` | vLLM server port |
