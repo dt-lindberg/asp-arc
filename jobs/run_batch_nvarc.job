@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=GptNvarcBatch
 #SBATCH --partition=gpu_h100
-#SBATCH --time=04:00:00
+#SBATCH --time=24:00:00
 #SBATCH --gpus=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
@@ -31,9 +31,10 @@ export PYTORCH_ALLOC_CONF=expandable_segments:True
 export VLLM_HOST="${VLLM_HOST:-127.0.0.1}"
 export VLLM_PORT="${VLLM_PORT:-8001}"
 export TP_SIZE="${TP_SIZE:-${SLURM_GPUS:-1}}"
-export MAX_NUM_SEQS="${MAX_NUM_SEQS:-50}"
-export N_PUZZLES="${N_PUZZLES:-50}"
+export MAX_NUM_SEQS="${MAX_NUM_SEQS:-36}"
+export N_PUZZLES="${N_PUZZLES:-1000}"
 export MAX_REFINEMENT_ATTEMPTS="${MAX_REFINEMENT_ATTEMPTS:-2}"
+export MAX_TOKENS="${MAX_TOKENS:-50000}"
 
 mkdir -p tiktoken_encodings
 wget -nc -q -O tiktoken_encodings/o200k_base.tiktoken \
