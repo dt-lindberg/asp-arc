@@ -47,10 +47,6 @@ TEMPERATURE = 1.0
 TOP_P = float(os.environ.get("TOP_P", "1.0"))
 TOP_K = -1  # disabled
 
-# Candidates generated per prompt (vLLM `n` parameter). All n samples share the
-# prefill, so this is much cheaper than n independent requests.
-N_CANDIDATES = int(os.environ.get("N_CANDIDATES", "4"))
-
 # Server-side defaults (used by serve_vllm.job; kept here for reference).
 MAX_MODEL_LEN = 100_000
 MAX_NUM_BATCHED_TOKENS = 4_096

@@ -210,6 +210,29 @@ def build_feedback_message(
     return "\n".join(lines)
 
 
+def build_no_block_feedback_message() -> str:
+    """Feedback for the NO_BLOCK case: response missing or malformed.
+
+    * Cause is ambiguous from our side
+      - The model may have formatted the answer incorrectly, or
+      - The model may have exhausted its `max_tokens` budget during reasoning
+        before emitting any visible response.
+    """
+    lines = [
+        "Your previous response did not contain a single ```asp ... ``` fenced block.",
+        "",
+        "This could be due to one of:",
+        "  - a formatting issue (the block was missing, mislabelled, or duplicated), or",
+        "  - the model's `max_tokens` budget being exhausted during reasoning,",
+        "    before the closing fence was emitted.",
+        "",
+        "## Instructions",
+        "1. Provide the corrected ASP program in a **single** ```asp ... ``` block.",
+        "2. Keep your reasoning concise so the program fits within the token budget.",
+    ]
+    return "\n".join(lines)
+
+
 def build_refinement_messages(
     initial_messages: list[dict],
     conversation_history: list[tuple[str, str]],

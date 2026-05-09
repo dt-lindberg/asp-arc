@@ -1,12 +1,26 @@
 """
-Batch NVARC → ASP pipeline with agentic refinement loop.
+Single-candidate NVARC → ASP batch pipeline with refinement loop.
 
-Samples N unique puzzles across all outputs/ parquets, translates each to ASP
-via GPT-OSS-120B, validates with Clingo, and writes results to a JSONL file.
-Failed candidates are iteratively refined by feeding Clingo error messages and
-grid diffs back to the model in follow-up conversation turns.
+Per puzzle: one initial generation, then up to MAX_REFINEMENT_ATTEMPTS
+refinement turns on a multi-turn conversation thread fed by Clingo feedback.
+The moment a generation passes Clingo, the puzzle is done.
 
-Results are written after each chunk so intermediate progress survives a crash.
+This replaces the older multi-candidate pipeline (now under src/archived/).
+The motivation is throughput: spending the budget on refinement of a single
+candidate, only for puzzles that actually need it, beats spending it on
+parallel candidates that mostly redo work the first one already got right.
+
+Records are appended to JSONL after every generation (initial and refinement),
+so progress survives a crash and the file alone is enough to reconstruct the
+final state per puzzle.
+
+* Edge case worth flagging
+  - When the model's `max_tokens` budget is exhausted during reasoning, the
+    visible `response` field is empty while `thinking` is huge. We NEVER feed
+    `thinking` back as assistant content — that would push the next round's
+    prompt past `max-model-len` and crash the request. The empty response is
+    replayed as a "(no response)" placeholder; the thinking is preserved only
+    in the JSONL record for that round.
 """
 
 import argparse
@@ -19,7 +33,6 @@ from config.config_llm import (
     MAX_NUM_SEQS,
     MAX_TOKENS,
     MODEL_REPO_ID,
-    N_CANDIDATES,
     REASONING_EFFORT,
     TEMPERATURE,
     TOP_K,
@@ -41,6 +54,7 @@ from utils.nvarc_sampler import sample_puzzles
 from utils.output_writer import OutputWriter
 from utils.refinement import (
     build_feedback_message,
+    build_no_block_feedback_message,
     build_refinement_messages,
     categorize_first_failure,
     compute_grid_diff,
@@ -50,21 +64,43 @@ setup_logging(log_level=os.getenv("LOG_LEVEL", LOG_LEVEL))
 logger = get_logger(__name__)
 
 
-def _make_base_record(
+# Sentinel trigger for the "no asp block was extracted" refinement path.
+# Distinct from the four Clingo-failure triggers in categorize_first_failure().
+NO_BLOCK_TRIGGER = "no_block"
+
+
+def _summary_for_record(summary):
+    """JSONL-safe slice of a validation summary (drops the per-pair details)."""
+    if summary is None:
+        return None
+    return {
+        "passed": summary["passed"],
+        "correct": summary["correct"],
+        "total": summary["total"],
+        "clingo_errors": summary["clingo_errors"],
+    }
+
+
+def _make_record(
     row,
     source_parquet,
     prompt_template,
-    n_candidates,
-    candidate_index,
     response,
-    asp_code,
     thinking,
+    asp_code,
+    summary,
+    refinement_round,
+    trigger=None,
+    pair_index=None,
+    feedback_prompt=None,
+    grid_diff=None,
 ):
-    return {
+    """Build a JSONL record. Refinement-only fields are added when present."""
+    record = {
         "puzzle_name1": row.puzzle_name1,
         "puzzle_name2": row.puzzle_name2,
         "sid": int(row.sid),
-        "candidate_index": candidate_index,
+        "candidate_index": 0,
         "source_parquet": source_parquet,
         "prompt_template": prompt_template,
         "parameters": {
@@ -73,132 +109,263 @@ def _make_base_record(
             "temperature": TEMPERATURE,
             "top_k": TOP_K,
             "max_tokens": MAX_TOKENS,
-            "n_candidates": n_candidates,
+            "n_candidates": 1,
         },
         "thinking": thinking,
         "response": response,
         "asp_code": asp_code,
+        "validation": _summary_for_record(summary),
+        "refinement_round": refinement_round,
     }
-
-
-def _make_initial_record(
-    row,
-    source_parquet,
-    prompt_template,
-    n_candidates,
-    candidate_index,
-    response,
-    asp_code,
-    summary,
-    thinking,
-):
-    record = _make_base_record(
-        row,
-        source_parquet,
-        prompt_template,
-        n_candidates,
-        candidate_index,
-        response,
-        asp_code,
-        thinking,
-    )
-    record["validation"] = (
-        None
-        if summary is None
-        else {
-            "passed": summary["passed"],
-            "correct": summary["correct"],
-            "total": summary["total"],
-            "clingo_errors": summary["clingo_errors"],
-        }
-    )
-    record["refinement_round"] = 0
+    if refinement_round > 0:
+        record["trigger"] = trigger
+        record["first_failing_pair_index"] = pair_index
+        record["feedback_prompt"] = feedback_prompt
+        record["grid_diff"] = grid_diff
     return record
 
 
-def _make_refinement_record(
-    row,
-    source_parquet,
-    prompt_template,
-    n_candidates,
-    candidate_index,
-    response,
-    thinking,
-    asp_code,
-    summary,
-    round_num,
-    trigger,
-    pair_idx,
-    feedback_prompt,
-    grid_diff,
+def _try_extract_asp_block(response):
+    """Extract a single ```asp block from response. Returns "" on failure."""
+    if not response:
+        return ""
+    try:
+        return extract_asp_block(response)
+    except ValueError:
+        return ""
+
+
+def _build_round_feedback(state):
+    """Build the user feedback for the next refinement turn.
+
+    Returns (feedback_text, trigger, pair_index, grid_diff).
+
+    * Three cases
+      - state has no ASP block (NO_BLOCK)            → ambiguous-cause feedback
+      - state's program failed Clingo validation     → category-specific feedback
+      - state's program passed                       → caller should not call us
+    """
+    validation = state["validation"]
+
+    # NO_BLOCK: response was missing or malformed; cause is ambiguous.
+    if validation is None:
+        return build_no_block_feedback_message(), NO_BLOCK_TRIGGER, -1, None
+
+    trigger, pair_idx, details = categorize_first_failure(validation["pairs"])
+    if trigger is None:
+        # Should not happen: caller filters out solved puzzles.
+        return None, None, -1, None
+
+    # wrong_cells / wrong_count / unsat / syntax_error all need the failing pair grids.
+    row = state["row"]
+    all_pairs = load_grid_pairs(row.puzzle_name1, row.puzzle_name2)
+    input_grid, expected_grid = all_pairs[pair_idx]
+
+    grid_diff = None
+    if trigger == "wrong_cells" and details.get("actual_atoms"):
+        grid_diff = compute_grid_diff(expected_grid, details["actual_atoms"])
+
+    feedback = build_feedback_message(
+        asp_code=state["asp_code"],
+        trigger=trigger,
+        pair_index=pair_idx,
+        details=details,
+        input_grid=input_grid,
+        expected_grid=expected_grid,
+        round_num=state["round"] + 1,
+    )
+    return feedback, trigger, pair_idx, grid_diff
+
+
+def _process_generation_result(
+    state, thinking, response, row, prompt_template
 ):
-    record = _make_base_record(
-        row,
-        source_parquet,
-        prompt_template,
-        n_candidates,
-        candidate_index,
-        response,
-        asp_code,
-        thinking,
+    """Validate a freshly-generated (thinking, response). Mutates state in place.
+
+    Returns (asp_code, summary). asp_code is "" on NO_BLOCK; summary is None
+    on NO_BLOCK and otherwise the full validate_asp_program() dict.
+    """
+    asp_code = _try_extract_asp_block(response)
+    summary = (
+        validate_asp_program(asp_code, row.puzzle_name1, row.puzzle_name2)
+        if asp_code
+        else None
     )
-    record["validation"] = (
-        None
-        if summary is None
-        else {
-            "passed": summary["passed"],
-            "correct": summary["correct"],
-            "total": summary["total"],
-            "clingo_errors": summary["clingo_errors"],
-        }
-    )
-    record["refinement_round"] = round_num
-    record["trigger"] = trigger
-    record["first_failing_pair_index"] = pair_idx
-    record["feedback_prompt"] = feedback_prompt
-    record["grid_diff"] = grid_diff
-    return record
+    state["asp_code"] = asp_code
+    state["response"] = response
+    state["thinking"] = thinking
+    state["validation"] = summary
+    if summary is not None and summary["passed"]:
+        state["solved"] = True
+    return asp_code, summary
 
 
-def _try_extract_asp_block(thinking, response):
-    """Extract ASP block from response (falling back to thinking)."""
-    for source in (response, thinking or ""):
-        if not source:
-            continue
+def _phase_initial(engine, chunk, template, prompt_template_path, writer, t0, n_total, n_seen):
+    """Run the initial-generation phase for one chunk.
+
+    Returns a dict puzzle_states keyed by (puzzle_name1, puzzle_name2). Skips
+    puzzles whose extraction fails. Writes one initial record per puzzle.
+    """
+    rows, src_parquets, initial_messages = [], [], []
+    for row, src in chunk:
         try:
-            return extract_asp_block(source), source
-        except ValueError:
-            logger.warning(f"Failed to extract ASP block, source={source[:100]}...")
+            puzzle_xml = extract_puzzle_xml(row.prompt)
+            python_code = extract_python_code(row.completion)
+            prompt = build_prompt(template, puzzle_xml, python_code)
+        except ValueError as e:
+            logger.warning(f"Skipping {row.puzzle_name1}/{row.puzzle_name2}: {e}")
             continue
-    raise ValueError("No ```asp block found in response or thinking")
+        rows.append(row)
+        src_parquets.append(src)
+        initial_messages.append([{"role": "user", "content": prompt}])
+
+    if not initial_messages:
+        return {}, n_seen
+
+    results = engine.generate_batch(initial_messages, n=1)
+
+    puzzle_states = {}
+    for row, src, msgs, candidates in zip(rows, src_parquets, initial_messages, results):
+        n_seen += 1
+        thinking, response = candidates[0]
+
+        state = {
+            "row": row,
+            "src": src,
+            "initial_msgs": msgs,
+            "asp_code": "",
+            "response": "",
+            "thinking": "",
+            "validation": None,
+            "history": [],
+            "round": 0,
+            "solved": False,
+        }
+        _process_generation_result(state, thinking, response, row, prompt_template_path)
+
+        record = _make_record(
+            row=row,
+            source_parquet=src,
+            prompt_template=prompt_template_path,
+            response=response,
+            thinking=thinking,
+            asp_code=state["asp_code"],
+            summary=state["validation"],
+            refinement_round=0,
+        )
+        writer.write(record)
+
+        if state["asp_code"]:
+            tag = (
+                f"PASS({state['validation']['correct']}/{state['validation']['total']})"
+                if state["solved"]
+                else f"FAIL({state['validation']['correct']}/{state['validation']['total']})"
+            )
+        else:
+            tag = "NO_BLOCK"
+
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            f"[{n_seen}/{n_total}] {row.puzzle_name1}/{row.puzzle_name2}"
+            f" sid={row.sid}  initial={tag}  {elapsed:.0f}s elapsed"
+        )
+
+        puzzle_states[(row.puzzle_name1, row.puzzle_name2)] = state
+
+    return puzzle_states, n_seen
 
 
-def _validate_and_write(
-    writer,
-    row,
-    src,
-    prompt_template,
-    n_candidates,
-    cand_idx,
-    response,
-    thinking,
-    asp_code,
-):
-    """Validate asp_code and write the record. Returns (record, summary)."""
-    summary = validate_asp_program(asp_code, row.puzzle_name1, row.puzzle_name2)
-    record = _make_initial_record(
-        row,
-        src,
-        prompt_template,
-        n_candidates,
-        cand_idx,
-        response,
-        asp_code,
-        summary,
-        thinking,
-    )
-    writer.write(record)
-    return record, summary
+def _phase_refinement(engine, puzzle_states, prompt_template_path, writer, max_refinement, t0):
+    """Run refinement rounds until everyone solves or budget exhausts.
+
+    Each round batches all unsolved puzzles into a single generate_batch call.
+    """
+    if max_refinement <= 0:
+        return
+
+    for round_num in range(1, max_refinement + 1):
+        batch_msgs = []
+        batch_meta = []  # parallel list: (puzzle_key, feedback, trigger, pair_idx, grid_diff)
+
+        for puzzle_key, state in puzzle_states.items():
+            if state["solved"]:
+                continue
+
+            feedback, trigger, pair_idx, grid_diff = _build_round_feedback(state)
+            if feedback is None:
+                continue
+
+            # Build the multi-turn messages.
+            #   initial + (prev_resp, prev_feedback) pairs from history
+            #   + (current state.response, new feedback)
+            # Note: state.response is replayed as the latest assistant turn.
+            # state.thinking is intentionally never replayed — see module docstring.
+            msgs = build_refinement_messages(
+                initial_messages=state["initial_msgs"],
+                conversation_history=state["history"],
+                response_text=state["response"],
+                feedback_message=feedback,
+            )
+            batch_msgs.append(msgs)
+            batch_meta.append((puzzle_key, feedback, trigger, pair_idx, grid_diff))
+
+        if not batch_msgs:
+            break
+
+        logger.info(
+            f"Refinement round {round_num}: sending {len(batch_msgs)} fix prompts"
+        )
+
+        ref_results = engine.generate_batch(batch_msgs, n=1)
+
+        for (puzzle_key, feedback, trigger, pair_idx, grid_diff), candidates in zip(
+            batch_meta, ref_results
+        ):
+            thinking, response = candidates[0]
+            state = puzzle_states[puzzle_key]
+            row = state["row"]
+            src = state["src"]
+
+            # Append (old response, feedback used this round) to history BEFORE
+            # we overwrite state.response. This pairs each prior assistant turn
+            # with the feedback that followed it, keeping the alternation clean
+            # for build_refinement_messages on subsequent rounds.
+            state["history"].append((state["response"], feedback))
+            state["round"] = round_num
+
+            _process_generation_result(state, thinking, response, row, prompt_template_path)
+
+            record = _make_record(
+                row=row,
+                source_parquet=src,
+                prompt_template=prompt_template_path,
+                response=response,
+                thinking=thinking,
+                asp_code=state["asp_code"],
+                summary=state["validation"],
+                refinement_round=round_num,
+                trigger=trigger,
+                pair_index=pair_idx,
+                feedback_prompt=feedback,
+                grid_diff=grid_diff,
+            )
+            writer.write(record)
+
+            elapsed = time.perf_counter() - t0
+            if state["solved"]:
+                logger.info(
+                    f"  Refine r{round_num} {puzzle_key} SOLVED  {elapsed:.0f}s elapsed"
+                )
+            elif state["asp_code"]:
+                v = state["validation"]
+                logger.info(
+                    f"  Refine r{round_num} {puzzle_key}: FAIL({v['correct']}/{v['total']})"
+                    f"  trigger={trigger}  {elapsed:.0f}s elapsed"
+                )
+            else:
+                logger.info(
+                    f"  Refine r{round_num} {puzzle_key}: NO_BLOCK  {elapsed:.0f}s elapsed"
+                )
 
 
 def main(args):
@@ -209,306 +376,38 @@ def main(args):
     engine = VLLMEngine(host=args.host, port=args.port, seed=args.seed)
     sampler = sample_puzzles(args.n)
 
-    max_refinement = args.max_refinement_attempts
-
-    n_processed = 0
-    n_puzzles_passed = 0
+    n_seen = 0
+    n_solved_total = 0
     t0 = time.perf_counter()
 
     for chunk in itertools.batched(sampler, args.chunk_size):
-        # ── Phase 1: Build prompts and generate initial candidates ──────────
-        rows, src_parquets, initial_messages = [], [], []
-        for row, src in chunk:
-            try:
-                puzzle_xml = extract_puzzle_xml(row.prompt)
-                python_code = extract_python_code(row.completion)
-                prompt = build_prompt(template, puzzle_xml, python_code)
-                rows.append(row)
-                src_parquets.append(src)
-                initial_messages.append([{"role": "user", "content": prompt}])
-            except ValueError as e:
-                logger.warning(f"Skipping {row.puzzle_name1}/{row.puzzle_name2}: {e}")
+        puzzle_states, n_seen = _phase_initial(
+            engine, chunk, template, args.prompt_template, writer, t0, args.n, n_seen
+        )
 
-        if not initial_messages:
-            continue
+        _phase_refinement(
+            engine, puzzle_states, args.prompt_template, writer,
+            args.max_refinement_attempts, t0,
+        )
 
-        results = engine.generate_batch(initial_messages, n=args.n_candidates)
-
-        # ── Phase 2: Initial validation ─────────────────────────────────────
-        # Per-puzzle state: {puzzle_key: {"solved": bool, "active_cand": int, "candidates": [...]}}
-        puzzle_states = {}
-
-        for puzzle_idx, (row, src, candidates) in enumerate(
-            zip(rows, src_parquets, results)
-        ):
-            n_processed += 1
-            puzzle_passed = False
-            cand_statuses = []
-            puzzle_key = (row.puzzle_name1, row.puzzle_name2)
-            initial_msgs = initial_messages[puzzle_idx]
-            state = {"solved": False, "active_cand": 0, "candidates": []}
-
-            for cand_idx, (thinking, response) in enumerate(candidates):
-                try:
-                    asp_code, _ = _try_extract_asp_block(thinking, response)
-                except ValueError as e:
-                    logger.info(
-                        f"[{n_processed}] {row.puzzle_name1} cand={cand_idx}: "
-                        f"no ASP block — {e}"
-                    )
-                    record = _make_initial_record(
-                        row,
-                        src,
-                        args.prompt_template,
-                        args.n_candidates,
-                        cand_idx,
-                        response=response,
-                        asp_code="",
-                        summary=None,
-                        thinking=thinking,
-                    )
-                    writer.write(record)
-                    cand_statuses.append("NO_BLOCK")
-                    state["candidates"].append(
-                        {
-                            "asp_code": "",
-                            "validation": None,
-                            "thinking": thinking,
-                            "response": response,
-                            "initial_msgs": initial_msgs,
-                            "history": [],
-                        }
-                    )
-                    continue
-
-                record, summary = _validate_and_write(
-                    writer,
-                    row,
-                    src,
-                    args.prompt_template,
-                    args.n_candidates,
-                    cand_idx,
-                    response,
-                    thinking,
-                    asp_code,
-                )
-
-                state["candidates"].append(
-                    {
-                        "asp_code": asp_code,
-                        "validation": summary,
-                        "thinking": thinking,
-                        "response": response,
-                        "initial_msgs": initial_msgs,
-                        "history": [],
-                    }
-                )
-
-                if summary["passed"]:
-                    puzzle_passed = True
-                    cand_statuses.append(
-                        f"PASS({summary['correct']}/{summary['total']})"
-                    )
-                else:
-                    cand_statuses.append(
-                        f"FAIL({summary['correct']}/{summary['total']})"
-                    )
-
-            if puzzle_passed:
-                n_puzzles_passed += 1
-                state["solved"] = True
-
-            puzzle_states[puzzle_key] = state
-
-            elapsed = time.perf_counter() - t0
-            logger.info(
-                f"[{n_processed}/{args.n}] {row.puzzle_name1}/{row.puzzle_name2}"
-                f" sid={row.sid}  [{', '.join(cand_statuses)}]"
-                f"  {elapsed:.0f}s elapsed"
-            )
-
-        # ── Phase 3: Refinement loop ────────────────────────────────────────
-        if max_refinement <= 0:
-            continue
-
-        # Rebuild rows_lookup for refinement (maps puzzle_key -> row, src)
-        rows_lookup = {}
-        for row_idx, row in enumerate(rows):
-            rows_lookup[(row.puzzle_name1, row.puzzle_name2)] = (
-                row,
-                src_parquets[row_idx],
-            )
-
-        for round_num in range(1, max_refinement + 1):
-            batch_msgs = []
-            batch_meta = []  # (puzzle_key, candidate_idx, feedback, asp_code, trigger, pair_idx)
-
-            for puzzle_key, state in puzzle_states.items():
-                if state["solved"]:
-                    continue
-
-                active_idx = state["active_cand"]
-                if active_idx >= len(state["candidates"]):
-                    continue
-
-                cand = state["candidates"][active_idx]
-
-                # Skip if this candidate already passed
-                if cand["validation"] and cand["validation"]["passed"]:
-                    state["solved"] = True
-                    n_puzzles_passed += 1
-                    logger.info(
-                        f"  Puzzle {puzzle_key} solved by cand={active_idx} (already passed)"
-                    )
-                    continue
-
-                # Skip NO_BLOCK candidates — can't refine without code
-                if cand["validation"] is None:
-                    state["active_cand"] += 1
-                    logger.info(
-                        f"  Puzzle {puzzle_key} cand={active_idx}: NO_BLOCK, "
-                        f"advancing to cand={state['active_cand']}"
-                    )
-                    continue
-
-                # Check if this candidate has been refined enough
-                if len(cand["history"]) >= max_refinement:
-                    state["active_cand"] += 1
-                    logger.info(
-                        f"  Puzzle {puzzle_key} cand={active_idx}: exhausted rounds, moving to cand={state['active_cand']}"
-                    )
-                    continue
-
-                # Build feedback for this candidate
-                validation = cand["validation"]
-                if validation is None:
-                    continue  # no ASP block extracted, can't refine
-
-                trigger, pair_idx, details = categorize_first_failure(
-                    validation["pairs"]
-                )
-                if trigger is None:
-                    continue  # all passed — shouldn't happen but guard
-
-                row, src = rows_lookup[puzzle_key]
-                all_pairs = load_grid_pairs(row.puzzle_name1, row.puzzle_name2)
-                input_grid, expected_grid = all_pairs[pair_idx]
-
-                feedback = build_feedback_message(
-                    asp_code=cand["asp_code"],
-                    trigger=trigger,
-                    pair_index=pair_idx,
-                    details=details,
-                    input_grid=input_grid,
-                    expected_grid=expected_grid,
-                    round_num=round_num,
-                )
-
-                # Build multi-turn conversation
-                msgs = build_refinement_messages(
-                    initial_messages=cand["initial_msgs"],
-                    conversation_history=cand["history"],
-                    response_text=cand["response"] or cand["thinking"],
-                    feedback_message=feedback,
-                )
-
-                batch_msgs.append(msgs)
-                batch_meta.append(
-                    (
-                        puzzle_key,
-                        active_idx,
-                        cand,
-                        feedback,
-                        trigger,
-                        pair_idx,
-                        (input_grid, expected_grid),
-                    )
-                )
-
-            if not batch_msgs:
-                break
-
-            logger.info(
-                f"Refinement round {round_num}: sending {len(batch_msgs)} fix prompts"
-            )
-
-            ref_results = engine.generate_batch(batch_msgs, n=1)
-
-            # Process refinement results
-            for meta, candidates in zip(batch_meta, ref_results):
-                thinking, response = candidates[0]
-                puzzle_key, cand_idx, cand, feedback, trigger, pair_idx, grids = meta
-                input_grid, expected_grid = grids
-
-                try:
-                    asp_code, _ = _try_extract_asp_block(thinking, response)
-                except ValueError as e:
-                    logger.info(
-                        f"  Refine r{round_num} {puzzle_key} cand={cand_idx}: no ASP block — {e}"
-                    )
-                    cand["history"].append((response or thinking, feedback))
-                    continue
-
-                # Validate refined program
-                row, src = rows_lookup[puzzle_key]
-                summary = validate_asp_program(
-                    asp_code, row.puzzle_name1, row.puzzle_name2
-                )
-
-                # Compute grid diff for wrong_cells failures (pre-refinement)
-                grid_diff = None
-                if trigger == "wrong_cells" and details.get("actual_atoms"):
-                    grid_diff = compute_grid_diff(
-                        expected_grid, details["actual_atoms"]
-                    )
-
-                # Write refinement record
-                ref_record = _make_refinement_record(
-                    row,
-                    src,
-                    args.prompt_template,
-                    args.n_candidates,
-                    cand_idx,
-                    response=response,
-                    thinking=thinking,
-                    asp_code=asp_code,
-                    summary=summary,
-                    round_num=round_num,
-                    trigger=trigger,
-                    pair_idx=pair_idx,
-                    feedback_prompt=feedback,
-                    grid_diff=grid_diff,
-                )
-                writer.write(ref_record)
-
-                # Update candidate state
-                cand["asp_code"] = asp_code
-                cand["validation"] = summary
-                cand["thinking"] = thinking
-                cand["response"] = response
-                cand["history"].append((response or thinking, feedback))
-
-                if summary["passed"]:
-                    puzzle_states[puzzle_key]["solved"] = True
-                    n_puzzles_passed += 1
-                    logger.info(
-                        f"  Puzzle {puzzle_key} SOLVED at refinement round {round_num} "
-                        f"by cand={cand_idx}"
-                    )
-                else:
-                    logger.info(
-                        f"  Refine r{round_num} {puzzle_key} cand={cand_idx}: "
-                        f"FAIL({summary['correct']}/{summary['total']})"
-                    )
+        n_solved_chunk = sum(1 for s in puzzle_states.values() if s["solved"])
+        n_solved_total += n_solved_chunk
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            f"Chunk done: {n_solved_chunk}/{len(puzzle_states)} solved."
+            f"  Running total: {n_solved_total}/{n_seen}  ({elapsed:.0f}s elapsed)"
+        )
 
     logger.info(
-        f"Done: {n_puzzles_passed}/{n_processed} puzzles had at least one passing candidate."
-        f" Results in {args.output_file}"
+        f"Done: {n_solved_total}/{n_seen} puzzles solved (initial or refinement)."
+        f"  Results in {args.output_file}"
     )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Batch NVARC → ASP pipeline")
+    parser = argparse.ArgumentParser(
+        description="Single-candidate batch NVARC → ASP pipeline with refinement"
+    )
     parser.add_argument(
         "--n", type=int, default=100, help="Target number of unique puzzles to sample"
     )
@@ -524,16 +423,10 @@ if __name__ == "__main__":
         help="Puzzles per vLLM batch (default: MAX_NUM_SEQS)",
     )
     parser.add_argument(
-        "--n-candidates",
-        type=int,
-        default=N_CANDIDATES,
-        help="Candidate completions per puzzle (vLLM `n`; default: N_CANDIDATES)",
-    )
-    parser.add_argument(
         "--max-refinement-attempts",
         type=int,
         default=MAX_REFINEMENT_ATTEMPTS,
-        help="Max refinement rounds per candidate (0 = no refinement)",
+        help="Max refinement rounds per puzzle (0 = no refinement)",
     )
     parser.add_argument("--prompt-template", default=NVARC_ASP_PROMPT)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
