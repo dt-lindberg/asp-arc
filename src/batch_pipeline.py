@@ -177,9 +177,7 @@ def _build_round_feedback(state):
     return feedback, trigger, pair_idx, grid_diff
 
 
-def _process_generation_result(
-    state, thinking, response, row, prompt_template
-):
+def _process_generation_result(state, thinking, response, row, prompt_template):
     """Validate a freshly-generated (thinking, response). Mutates state in place.
 
     Returns (asp_code, summary). asp_code is "" on NO_BLOCK; summary is None
@@ -200,7 +198,9 @@ def _process_generation_result(
     return asp_code, summary
 
 
-def _phase_initial(engine, chunk, template, prompt_template_path, writer, t0, n_total, n_seen):
+def _phase_initial(
+    engine, chunk, template, prompt_template_path, writer, t0, n_total, n_seen
+):
     """Run the initial-generation phase for one chunk.
 
     Returns a dict puzzle_states keyed by (puzzle_name1, puzzle_name2). Skips
@@ -225,7 +225,9 @@ def _phase_initial(engine, chunk, template, prompt_template_path, writer, t0, n_
     results = engine.generate_batch(initial_messages, n=1)
 
     puzzle_states = {}
-    for row, src, msgs, candidates in zip(rows, src_parquets, initial_messages, results):
+    for row, src, msgs, candidates in zip(
+        rows, src_parquets, initial_messages, results
+    ):
         n_seen += 1
         thinking, response = candidates[0]
 
@@ -275,7 +277,9 @@ def _phase_initial(engine, chunk, template, prompt_template_path, writer, t0, n_
     return puzzle_states, n_seen
 
 
-def _phase_refinement(engine, puzzle_states, prompt_template_path, writer, max_refinement, t0):
+def _phase_refinement(
+    engine, puzzle_states, prompt_template_path, writer, max_refinement, t0
+):
     """Run refinement rounds until everyone solves or budget exhausts.
 
     Each round batches all unsolved puzzles into a single generate_batch call.
@@ -333,7 +337,9 @@ def _phase_refinement(engine, puzzle_states, prompt_template_path, writer, max_r
             state["history"].append((state["response"], feedback))
             state["round"] = round_num
 
-            _process_generation_result(state, thinking, response, row, prompt_template_path)
+            _process_generation_result(
+                state, thinking, response, row, prompt_template_path
+            )
 
             record = _make_record(
                 row=row,
@@ -386,8 +392,12 @@ def main(args):
         )
 
         _phase_refinement(
-            engine, puzzle_states, args.prompt_template, writer,
-            args.max_refinement_attempts, t0,
+            engine,
+            puzzle_states,
+            args.prompt_template,
+            writer,
+            args.max_refinement_attempts,
+            t0,
         )
 
         n_solved_chunk = sum(1 for s in puzzle_states.values() if s["solved"])
