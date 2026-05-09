@@ -20,7 +20,7 @@ Batch mode uses a weighted random sampler across all 150 parquet files, reading 
 ### Step 2 — Prompt & generate ASP
 Builds a translation prompt from a template (`prompts/nvarc_asp_translation.txt`) and sends it to GPT-OSS-120B via the vLLM server. The model is instructed to output a single ` ```asp ``` ` block and to write idiomatic ASP rather than a line-by-line Python translation.
 
-One generation per puzzle. Every puzzle is submitted as an independent `asyncio` task at the start of the run — there is no chunking and no client-side concurrency cap. **vLLM's continuous-batching scheduler is the queue:** it runs `--max-num-seqs` requests concurrently on the GPU and parks the rest in its waiting queue, admitting the next pending request the moment a running one finishes. (httpx's connection pool, default `max_connections=100`, bounds how many requests are in transit to vLLM at any moment; everything else queues client-side until a connection is free. For typical `MAX_NUM_SEQS` values this is plenty.)
+One generation per puzzle. The pipeline runs a **bounded worker pool** of `MAX_CONCURRENT_PUZZLES` workers (default 100) that pull puzzles lazily from the sampler via an `asyncio.Queue`. At any moment at most that many puzzles are alive in RAM — each running its own `gen → validate → refine` coroutine. When a worker's puzzle resolves (solved or refinement budget exhausted), the row is dropped from memory and the worker pulls the next one. **vLLM's continuous-batching scheduler is still the queue:** it runs `--max-num-seqs` requests concurrently on the GPU and parks the rest in its waiting queue, admitting the next pending request the moment a running one finishes. With ~100 puzzles independently feeding requests into vLLM, the waiting queue stays well above `MAX_NUM_SEQS` and the GPU stays saturated.
 
 When a puzzle's response comes back, its Clingo validation and JSONL write run in a worker thread (`asyncio.to_thread`) while the rest of the puzzles are still decoding on the GPU. Refinement requests for failing puzzles are submitted from inside that puzzle's coroutine, so they enter vLLM's queue alongside any initial requests still pending for other puzzles.
 
@@ -40,7 +40,7 @@ Puzzles whose initial generation fails (Clingo error, UNSAT, multiple answer set
 - The new user turn carries a category-specific feedback message (Clingo error / UNSAT / multi-answer / grid diff with line-numbered code), or a NO_BLOCK message acknowledging that the cause may be either malformed output or `max_tokens` exhaustion during reasoning.
 - Reasoning traces (`thinking`) are **never** replayed as assistant content — only the visible response is. This avoids a runaway prompt that would exceed `max-model-len` when the previous round burned its full token budget on reasoning.
 
-There are no separate refinement phases — each puzzle's coroutine simply loops `gen → validate → maybe-build-feedback → gen → ...` until it solves or hits the round budget. Refinement requests share vLLM's queue with initial requests from other puzzles, so the GPU stays fully utilized regardless of how many puzzles are at which stage.
+There are no separate refinement phases — each puzzle's coroutine simply loops `gen → validate → maybe-build-feedback → gen → ...` until it solves or hits the round budget. Refinement requests share vLLM's queue with initial requests from other puzzles, so the GPU stays fully utilized regardless of how many puzzles are at which stage. A puzzle that exits its loop frees its worker slot, which immediately picks up the next puzzle from the sampler — bounded RAM, continuous throughput.
 
 ### Throughput instrumentation
 `VLLMEngine` tracks the number of in-flight requests and logs it at every request start and finish (at `LOG_LEVEL=debug`, which is the default):
@@ -50,7 +50,7 @@ vLLM REQ start  in_flight=87
 vLLM REQ done   in_flight=86
 ```
 
-There's no fixed cap to compare against — the count is simply "requests we've submitted but not gotten a response back for yet." Of these, `--max-num-seqs` are running on the GPU at any moment and the rest are queued (in vLLM's waiting queue, or earlier in httpx's pending-connection queue).
+The count is simply "requests we've submitted but not gotten a response back for yet." It is naturally bounded by `MAX_CONCURRENT_PUZZLES`, since each worker holds at most one outstanding request. Of those in flight, `--max-num-seqs` are running on the GPU at any moment and the rest are queued in vLLM's waiting queue.
 
 The asctime prefix from the log formatter pairs each line with a timestamp, so the slurm log is enough to reconstruct concurrency over the run. At end of run, `main` also logs the peak in-flight count observed:
 
@@ -59,9 +59,9 @@ Peak in-flight requests (client side): 100
 ```
 
 Diagnostics:
-- **Peak ≈ httpx pool size (100 by default)** → submission rate is the limit; vLLM's queue is fed continuously, GPU stays busy. This is the normal steady state.
-- **Peak ≈ `MAX_NUM_SEQS`** → vLLM is running everything we send without queueing (puzzles finish faster than refinement requests are submitted). GPU still busy but has no buffer; rare in practice.
-- **Peak well below `MAX_NUM_SEQS`** → not enough work is being submitted (early run-up, or end-of-run drain).
+- **Peak ≈ `MAX_CONCURRENT_PUZZLES`** → all workers spend most of their time waiting on vLLM (the normal steady state). vLLM's queue is fed continuously, GPU stays busy.
+- **Peak noticeably below `MAX_CONCURRENT_PUZZLES` but ≥ `MAX_NUM_SEQS`** → workers are spending non-trivial time in Clingo validation rather than waiting on vLLM. GPU still busy.
+- **Peak below `MAX_NUM_SEQS`** → not enough work is being submitted (e.g., end-of-run drain when fewer puzzles remain than vLLM can run in parallel). If observed mid-run, raise `MAX_CONCURRENT_PUZZLES`.
 
 ### Output format
 Records for every generation (initial and each refinement round) are appended to a JSONL file (`outputs/batch_<SLURM_JOB_ID>.jsonl`). The unique key is `(puzzle_name1, puzzle_name2, sid, refinement_round)`. Each record:
@@ -125,7 +125,8 @@ All tuneable parameters are read from environment variables. The SLURM jobs expo
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_NUM_SEQS` | `8` / `50` | vLLM `--max-num-seqs` (parallel decodes on the GPU). No client-side cap — the script submits every puzzle's request immediately and lets vLLM and httpx handle queueing |
+| `MAX_NUM_SEQS` | `8` / `36` | vLLM `--max-num-seqs` (parallel decodes on the GPU). The waiting queue is fed by ~`MAX_CONCURRENT_PUZZLES` worker coroutines on the client side |
+| `MAX_CONCURRENT_PUZZLES` | `100` | Client-side worker-pool size. Caps how many puzzles are alive in RAM at any moment; each worker drives one puzzle's `gen → validate → refine` loop end-to-end |
 | `REASONING_EFFORT` | `high` | GPT-OSS reasoning budget: `low`, `medium`, or `high` |
 | `VLLM_HOST` | `127.0.0.1` | vLLM server host |
 | `VLLM_PORT` | `8001` | vLLM server port |

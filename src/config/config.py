@@ -1,5 +1,7 @@
 """General configuration: shared by all components."""
 
+import os
+
 # Seed to control randomness (incl. vLLM sampling)
 SEED = 132
 
@@ -16,3 +18,10 @@ CLINGO_MAX_MODELS = 2  # stop after 2 — enough to detect ambiguity
 
 # Refinement loop
 MAX_REFINEMENT_ATTEMPTS = 2  # max rounds of fix-and-retry per candidate
+
+# Bounded worker pool for batch_pipeline. At any moment, at most this many
+# puzzles are loaded in RAM and (via their independent gen→validate→refine
+# coroutines) feeding requests into vLLM's queue. Set high enough that
+# MAX_NUM_SEQS workers are always saturated even when some are mid-validation;
+# a few × MAX_NUM_SEQS is a good rule of thumb.
+MAX_CONCURRENT_PUZZLES = int(os.environ.get("MAX_CONCURRENT_PUZZLES", "100"))

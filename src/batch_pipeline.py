@@ -15,16 +15,19 @@ so progress survives a crash and the file alone is enough to reconstruct the
 final state per puzzle.
 
 * Concurrency model
-  - Every puzzle is submitted as an independent asyncio task at the start of
-    the run. There is no chunking and no client-side worker pool.
+  - A bounded worker pool of MAX_CONCURRENT_PUZZLES workers pulls puzzles
+    lazily from the sampler via an asyncio.Queue. At any moment at most
+    that many puzzles are alive in RAM, each running its own
+    gen→validate→refine coroutine.
   - vLLM's continuous-batching scheduler runs --max-num-seqs requests in
     parallel and queues the rest in its waiting queue. As running requests
     finish, the scheduler admits the next pending one in the same step.
   - Refinement requests for a failing puzzle are submitted from inside that
     puzzle's coroutine, so they enter vLLM's queue alongside any initial
     requests still pending for other puzzles.
-  - Net effect: vLLM stays at full GPU concurrency for the whole run, and
-    the client-side code stays flat.
+  - Net effect: ~MAX_CONCURRENT_PUZZLES requests in vLLM's pipeline at all
+    times, GPU stays saturated, and the client process never grows past the
+    state of MAX_CONCURRENT_PUZZLES live puzzles.
 
 * Edge case worth flagging
   - When the model's `max_tokens` budget is exhausted during reasoning, the
@@ -40,7 +43,12 @@ import asyncio
 import os
 import time
 
-from config.config import LOG_LEVEL, MAX_REFINEMENT_ATTEMPTS, SEED as DEFAULT_SEED
+from config.config import (
+    LOG_LEVEL,
+    MAX_CONCURRENT_PUZZLES,
+    MAX_REFINEMENT_ATTEMPTS,
+    SEED as DEFAULT_SEED,
+)
 from config.config_llm import (
     MAX_TOKENS,
     MODEL_REPO_ID,
@@ -193,7 +201,7 @@ async def handle_puzzle(
     writer,
     max_refinement,
     t0,
-    n_total,
+    n_requested,
     counter,
 ):
     """Run one puzzle through gen → validate → (refine → gen → validate)* end-to-end.
@@ -201,7 +209,11 @@ async def handle_puzzle(
     Each call is an independent coroutine. vLLM's scheduler queues the
     underlying chat requests across all concurrent puzzles, so concurrency
     here equals --max-num-seqs (running) plus whatever vLLM is willing to
-    keep waiting (capped client-side by VLLMEngine.sem).
+    keep waiting.
+
+    n_requested is the user-supplied --n; used as a soft denominator in
+    progress logs. The actual yielded count can be lower if the sampler runs
+    out of unsolved puzzles before reaching n_requested.
 
     * History bookkeeping
       - history holds (prev_response, prev_feedback) pairs from earlier
@@ -286,7 +298,7 @@ async def handle_puzzle(
             counter["solved"] += 1
             counter["done"] += 1
             logger.info(
-                f"[{counter['done']}/{n_total}] {p1}/{p2} sid={row.sid}"
+                f"[{counter['done']}/~{n_requested}] {p1}/{p2} sid={row.sid}"
                 f"  SOLVED at {phase}  {elapsed:.0f}s"
             )
             return
@@ -309,7 +321,7 @@ async def handle_puzzle(
     counter["done"] += 1
     elapsed = time.perf_counter() - t0
     logger.info(
-        f"[{counter['done']}/{n_total}] {p1}/{p2} sid={row.sid}"
+        f"[{counter['done']}/~{n_requested}] {p1}/{p2} sid={row.sid}"
         f"  UNSOLVED after {max_refinement} refinement(s)  {elapsed:.0f}s"
     )
 
@@ -321,41 +333,66 @@ async def main(args):
     writer = OutputWriter(args.output_file)
     engine = VLLMEngine(host=args.host, port=args.port, seed=args.seed)
 
-    # Materialize the sampler so we know n_total before kicking off tasks.
-    # Memory cost: ~30 KB per row × N puzzles; fine for 5 K and well under 1 GB.
-    puzzles = list(sample_puzzles(args.n))
-    n_total = len(puzzles)
-
     counter = {"done": 0, "solved": 0, "skipped": 0, "errored": 0}
     t0 = time.perf_counter()
 
-    tasks = [
-        asyncio.create_task(
-            handle_puzzle(
-                engine,
-                row,
-                src,
-                template,
-                args.prompt_template,
-                writer,
-                args.max_refinement_attempts,
-                t0,
-                n_total,
-                counter,
-            )
-        )
-        for row, src in puzzles
-    ]
+    # Bounded worker pool. The sampler is iterated lazily on the producer
+    # side, and the queue's small maxsize means a row only enters RAM when
+    # a worker is ready to take it. At any moment at most n_workers puzzles
+    # are alive — exactly the cap we want.
+    n_workers = min(args.max_concurrent_puzzles, args.n)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
 
-    logger.info(f"Submitted {n_total} puzzles to vLLM. Awaiting results...")
+    async def worker():
+        while True:
+            item = await queue.get()
+            try:
+                if item is None:
+                    return
+                row, src = item
+                await handle_puzzle(
+                    engine,
+                    row,
+                    src,
+                    template,
+                    args.prompt_template,
+                    writer,
+                    args.max_refinement_attempts,
+                    t0,
+                    args.n,
+                    counter,
+                )
+            finally:
+                queue.task_done()
 
-    await asyncio.gather(*tasks)
+    workers = [asyncio.create_task(worker()) for _ in range(n_workers)]
+    logger.info(
+        f"Started {n_workers} workers; streaming up to {args.n} puzzles "
+        f"from the sampler."
+    )
+
+    # Producer: feed rows into the queue. queue.put() blocks when all
+    # workers are busy, which is the backpressure that keeps RAM bounded.
+    # The sampler reads parquets synchronously, so wrap iteration in a
+    # thread to avoid stalling the event loop on disk I/O between rows.
+    sampler_iter = iter(sample_puzzles(args.n))
+    while True:
+        item = await asyncio.to_thread(next, sampler_iter, None)
+        if item is None:
+            break
+        await queue.put(item)
+
+    # Poison-pill each worker so they exit cleanly.
+    for _ in range(n_workers):
+        await queue.put(None)
+
+    await asyncio.gather(*workers)
 
     elapsed = time.perf_counter() - t0
     unsolved = counter["done"] - counter["solved"]
     logger.info(
         f"Done in {elapsed:.0f}s.  "
-        f"solved={counter['solved']}/{n_total}, unsolved={unsolved}, "
+        f"solved={counter['solved']}/{counter['done']}, unsolved={unsolved}, "
         f"skipped={counter['skipped']}, errored={counter['errored']}.  "
         f"Results in {args.output_file}"
     )
@@ -381,6 +418,12 @@ if __name__ == "__main__":
         type=int,
         default=MAX_REFINEMENT_ATTEMPTS,
         help="Max refinement rounds per puzzle (0 = no refinement)",
+    )
+    parser.add_argument(
+        "--max-concurrent-puzzles",
+        type=int,
+        default=MAX_CONCURRENT_PUZZLES,
+        help="Worker-pool size: max puzzles alive in RAM at any moment",
     )
     parser.add_argument("--prompt-template", default=NVARC_ASP_PROMPT)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
