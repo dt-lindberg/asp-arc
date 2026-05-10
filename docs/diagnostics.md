@@ -184,6 +184,130 @@ change** — diagnosis first, then fix.
 
 ---
 
+## Layer 2 — tracemalloc (added after run 22616269)
+
+Run `22616269` confirmed the leak is in the python pipeline process and on
+the chat-completion path: `self_rss` 1.6 GB → 182 GB over ~70 s during the
+first completion wave, while `vllm_rss` and `engine_rss` stayed flat (1.4 GB
+and 2.7 GB), only one `validate` warning fired, and `gc_objs` barely moved
+(165 k → 171 k) — small number of *huge* objects, not many small ones.
+
+External review pointed at httpx as a likely culprit. To pin the source line,
+`tracemalloc` is started at the top of `main()` and a snapshot is taken
+every `TRACEMALLOC_SNAPSHOT_EVERY=5` puzzle completions.
+
+### What gets logged
+
+After every 5th puzzle completion, four chunks of output:
+
+```
+TRACEMALLOC done=5 total=12.34GB tracked_blocks=45123 current=12.34GB peak=12.34GB
+TRACEMALLOC done=5 by-package:
+   8.123GB  blocks=     12345  http_stack(httpx)
+   2.456GB  blocks=     34567  http_stack(httpcore)
+   0.789GB  blocks=      8765  pydantic
+   0.456GB  blocks=     12345  ours
+   0.123GB  blocks=     56789  stdlib_or_other
+TRACEMALLOC done=5 top-15 by file:line:
+    1.  4.321GB  blocks=      4321  /…/httpx/_models.py:1234
+    2.  2.111GB  blocks=      2111  /…/httpcore/_async/http11.py:567
+    ...
+TRACEMALLOC done=5 top allocator full traceback (4.321GB, blocks=4321):
+   File "/…/httpx/_models.py", line 1234
+   File "/…/openai/_response.py", line 89
+   File "/…/llm/vllm_engine.py", line 84
+   ...
+```
+
+### Field meanings
+
+| Field | Source | What it tells you |
+|---|---|---|
+| `total` | sum over `Snapshot.statistics("lineno")` | currently-allocated bytes attributed to lines tracemalloc was watching |
+| `tracked_blocks` | sum of `.count` | number of live allocations attributed |
+| `current` | `tracemalloc.get_traced_memory()[0]` | current python-side allocation footprint, all sources |
+| `peak` | `tracemalloc.get_traced_memory()[1]` | **monotonic** high-water mark; immune to between-snapshot bursts |
+| `by-package` | `_classify_package` on each stat's top frame | grouped totals — the "is it httpx?" answer is here |
+| `top-15 by file:line` | `Snapshot.statistics("lineno")[:15]` | the leaking line, if any single line dominates |
+| top-allocator full traceback | `stat.traceback.format()` for `[0]` | full call chain into the leaking allocation; reveals e.g. openai → httpx → httpcore |
+
+### Package classification
+
+`_classify_package` in `src/utils/diagnostics.py` folds related libraries
+into named buckets so the suspected stack is one row, not five:
+
+| Bucket | Includes |
+|---|---|
+| `http_stack(<name>)` | `openai`, `httpx`, `httpcore`, `h11`, `h2`, `anyio` — the OpenAI client and everything beneath it down to the wire |
+| `pydantic` | `pydantic`, `pydantic_core` — response model parsing and `model_dump()` |
+| `stdlib_asyncio` | the stdlib `asyncio` package |
+| `clingo` | the `clingo` Python extension's `.py` glue |
+| `ours` | files under the project tree |
+| `other_site_packages` / `stdlib_or_other` | everything else |
+
+The HTTP stack appears as `http_stack(httpx)`, `http_stack(httpcore)`, etc.
+— the parenthetical names the specific package the allocation came out of,
+so you can tell whether bytes are sitting in httpx's `Response`, httpcore's
+connection buffer, or h11's parser. Sum the rows starting with
+`http_stack(` to get the HTTP-stack total in one number.
+
+### How to interpret the next run
+
+The interesting sample is **the snapshot taken just before OOM** — for run
+22616269 that would have been at `done=60`. Compare it to the first
+snapshot at `done=5`:
+
+- **`http_stack(*)` rows dominate and grow proportionally with `done`** →
+  HTTP-stack retention confirmed. Specifically:
+  - `http_stack(httpx)` dominant → httpx is buffering response bodies
+    (probably `Response.content` or a stream not being closed).
+  - `http_stack(httpcore)` dominant → connection-level buffer (read buffer
+    on the connection object).
+  - `http_stack(openai)` dominant → the OpenAI client's response wrapper or
+    its internal cache.
+- **`pydantic` is the dominant bucket** → `resp.model_dump()` (or the
+  `ChatCompletion` model itself) is retaining inflated copies of the
+  response. The fix would target `vllm_engine._one_chat`.
+- **`ours` is dominant** → the leak is in our code, not the client. The
+  top-15 file:line block names the exact line.
+- **`peak` is far above `total`** → there's also a transient burst that the
+  current sample missed. Lower `TRACEMALLOC_SNAPSHOT_EVERY` to 1 or 2.
+
+The "top allocator full traceback" line gives you the call chain for the
+single biggest line. For an httpx leak that traceback typically looks like
+`httpx/_models.py:<read>` ← `openai/_response.py:<parse>` ←
+`vllm_engine.py:<_one_chat>`. That naming alone is usually enough to
+identify which httpx/openai API is misused.
+
+### Caveats
+
+- **Tracemalloc has overhead.** Each tracked allocation carries a
+  `TRACEMALLOC_FRAMES=5` deep traceback. CPU is the dominant cost; memory
+  overhead is usually 10–25 % of the allocations being tracked. For a run
+  this allocation-heavy, expect 10–20 % wall-clock slowdown. Acceptable for
+  diagnosis.
+- **C-allocations done outside CPython's `PyMem_*` API are invisible.**
+  Specifically: any `malloc()` performed inside Clingo's grounder or inside
+  CUDA/torch is NOT tracked. This is fine for the current investigation
+  (the leak is python-side, run 22616269 confirmed) but worth knowing.
+- **Snapshots are taken from the worker that completes the 5th puzzle.**
+  Other workers continue running; their allocations *do* show up (snapshot
+  is process-wide), but they're a moving target between samples.
+- **`_last_snapshot_at` is module-level state.** If `batch_pipeline.main`
+  is re-entered (it isn't currently), it would skip already-taken
+  thresholds.
+
+### Removal
+
+Three lines in `batch_pipeline.py` (the import, the constant, and two
+`maybe_take_snapshot(...)` calls plus `start_tracemalloc()`), and the new
+functions in `src/utils/diagnostics.py` (`start_tracemalloc`,
+`maybe_take_snapshot`, `_take_and_log_snapshot`, `_classify_package`,
+plus the `_HTTP_STACK_PKGS` / `_PYDANTIC_PKGS` constants and the
+`tracemalloc` / `defaultdict` imports). No call-signature changes.
+
+---
+
 ## Follow-ups not in this patch
 
 If the periodic sampler + per-call deltas are inconclusive, the next layers:

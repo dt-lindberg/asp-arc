@@ -14,11 +14,24 @@ import asyncio
 import gc
 import os
 import threading
+import tracemalloc
+from collections import defaultdict
 from pathlib import Path
 
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# How many stack frames tracemalloc keeps per allocation. More frames = better
+# attribution but higher overhead. 5 is enough to walk from a hot allocation
+# back through openai → httpx → httpcore.
+TRACEMALLOC_FRAMES = 5
+
+# Packages to fold into the "http_stack" group when summarizing tracemalloc.
+# This is the suspected culprit per the external review; grouping them makes
+# the HTTP stack's footprint a single number in the snapshot summary.
+_HTTP_STACK_PKGS = ("openai", "httpx", "httpcore", "h11", "h2", "anyio")
+_PYDANTIC_PKGS = ("pydantic", "pydantic_core")
 
 
 def vmrss_gb(pid: int | None = None) -> float | None:
@@ -129,6 +142,145 @@ def discover_vllm_pids() -> dict[str, int | None]:
         "vllm_any": api_pids[0] if api_pids else None,
         "engine": engine_pids[0] if engine_pids else None,
     }
+
+
+def start_tracemalloc(frames: int = TRACEMALLOC_FRAMES) -> bool:
+    """Start tracemalloc with the given frame depth. Idempotent; safe to call twice."""
+    if tracemalloc.is_tracing():
+        logger.info("DIAG tracemalloc already tracing; not restarting")
+        return True
+    try:
+        tracemalloc.start(frames)
+    except Exception as e:
+        logger.warning(f"DIAG tracemalloc.start({frames}) failed: {type(e).__name__}: {e}")
+        return False
+    logger.info(f"DIAG tracemalloc started (frames={frames})")
+    return True
+
+
+def _classify_package(filepath: str) -> str:
+    """Map an allocation's source file to a coarse package label.
+
+    The HTTP stack (openai client + httpx + httpcore + h11/h2 + anyio) is
+    folded into one bucket because the suspected culprit lives somewhere in
+    that chain and a single number is more useful than five fragmented ones.
+    """
+    if not filepath:
+        return "other"
+    norm = filepath.replace(os.sep, "/")
+    for pkg in _HTTP_STACK_PKGS:
+        if f"/{pkg}/" in norm or norm.endswith(f"/{pkg}.py"):
+            return f"http_stack({pkg})"
+    for pkg in _PYDANTIC_PKGS:
+        if f"/{pkg}/" in norm or norm.endswith(f"/{pkg}.py"):
+            return "pydantic"
+    if "/asyncio/" in norm:
+        return "stdlib_asyncio"
+    if "/clingo/" in norm:
+        return "clingo"
+    # Project files live under the working directory hierarchy.
+    if "/asp-arc-gpt-oss-nvarc/" in norm or "/src/" in norm:
+        return "ours"
+    if "/site-packages/" in norm:
+        return "other_site_packages"
+    return "stdlib_or_other"
+
+
+_snapshot_lock = threading.Lock()
+_last_snapshot_at = -1
+
+
+def maybe_take_snapshot(done_count: int, every: int = 5) -> None:
+    """Take and log a tracemalloc snapshot when `done_count` crosses a multiple of `every`.
+
+    Safe to call from multiple workers/threads — the decision is locked, and
+    repeated calls at the same `done_count` snapshot at most once.
+    """
+    global _last_snapshot_at
+    if not tracemalloc.is_tracing():
+        return
+    with _snapshot_lock:
+        target = (done_count // every) * every
+        if target <= _last_snapshot_at or target == 0:
+            return
+        _last_snapshot_at = target
+    try:
+        _take_and_log_snapshot(done_count)
+    except Exception as e:
+        logger.warning(
+            f"DIAG tracemalloc snapshot failed at done={done_count}: "
+            f"{type(e).__name__}: {e}"
+        )
+
+
+def _take_and_log_snapshot(done_count: int) -> None:
+    """Capture a snapshot and emit a multi-line TRACEMALLOC report at INFO.
+
+    Output:
+      TRACEMALLOC done=N total=X.XXGB tracked_blocks=Y current=Z.ZZGB peak=W.WWGB
+      TRACEMALLOC done=N by-package:
+        S.SSGB  blocks=B  pkg
+        ...
+      TRACEMALLOC done=N top-15 by file:line:
+        S.SSGB  blocks=B  filename:line   <-- traceback frames after this if present
+        ...
+
+    `total` is the sum of currently-allocated bytes attributed to Python
+    allocations that tracemalloc was watching at allocation time. `current`
+    and `peak` come from tracemalloc.get_traced_memory() — `peak` is monotonic
+    over the whole run and is the best single watermark.
+    """
+    snap = tracemalloc.take_snapshot()
+    current, peak = tracemalloc.get_traced_memory()
+
+    stats_by_line = snap.statistics("lineno")
+    total = sum(s.size for s in stats_by_line)
+    blocks = sum(s.count for s in stats_by_line)
+
+    logger.info(
+        f"TRACEMALLOC done={done_count} total={total / 1e9:.2f}GB tracked_blocks={blocks} "
+        f"current={current / 1e9:.2f}GB peak={peak / 1e9:.2f}GB"
+    )
+
+    # Per-package totals, sorted descending. The HTTP stack is the suspected
+    # leak; if it dominates here, that's the answer.
+    pkg_totals: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"size": 0, "count": 0}
+    )
+    for stat in stats_by_line:
+        if not stat.traceback:
+            pkg = "no_traceback"
+        else:
+            pkg = _classify_package(stat.traceback[0].filename)
+        pkg_totals[pkg]["size"] += stat.size
+        pkg_totals[pkg]["count"] += stat.count
+
+    logger.info(f"TRACEMALLOC done={done_count} by-package:")
+    for pkg, info in sorted(pkg_totals.items(), key=lambda x: -x[1]["size"]):
+        logger.info(
+            f"  {info['size'] / 1e9:6.3f}GB  blocks={info['count']:>10d}  {pkg}"
+        )
+
+    # Top-N file:line allocators with one frame of context. Limit to 15 to
+    # keep the slurm log readable while still surfacing minor offenders.
+    logger.info(f"TRACEMALLOC done={done_count} top-15 by file:line:")
+    for i, stat in enumerate(stats_by_line[:15], 1):
+        frame = stat.traceback[0] if stat.traceback else None
+        loc = f"{frame.filename}:{frame.lineno}" if frame else "<no traceback>"
+        logger.info(
+            f"  {i:>2d}. {stat.size / 1e9:6.3f}GB  blocks={stat.count:>10d}  {loc}"
+        )
+
+    # For the single biggest allocator, dump its full traceback. This is
+    # where you'll see e.g. openai/_response.py → httpx/_models.py → httpcore.
+    if stats_by_line:
+        top = stats_by_line[0]
+        logger.info(
+            f"TRACEMALLOC done={done_count} top allocator full traceback "
+            f"({top.size / 1e9:.3f}GB, blocks={top.count}):"
+        )
+        for line in top.traceback.format():
+            logger.info(f"  {line}")
 
 
 async def diagnostics_sampler(interval: float = 10.0) -> None:

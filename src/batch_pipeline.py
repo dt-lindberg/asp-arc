@@ -61,7 +61,12 @@ from config.config_llm import (
 from config.config_nvarc import NVARC_ASP_PROMPT
 from llm.vllm_engine import VLLMEngine
 from utils.asp_validator import validate_asp_program
-from utils.diagnostics import diagnostics_sampler, vmrss_gb
+from utils.diagnostics import (
+    diagnostics_sampler,
+    maybe_take_snapshot,
+    start_tracemalloc,
+    vmrss_gb,
+)
 from utils.logger import setup_logging, get_logger
 from utils.nvarc_data import load_grid_pairs
 from utils.nvarc_formatting import (
@@ -91,6 +96,9 @@ NO_BLOCK_TRIGGER = "no_block"
 # Per-call RSS-delta logging threshold (GB). Calls whose surrounding RSS grows
 # by more than this are logged at WARNING. Pure observation: see docs/diagnostics.md.
 RSS_DELTA_LOG_THRESHOLD_GB = 1.0
+
+# How often (in completed puzzles) to take a tracemalloc snapshot.
+TRACEMALLOC_SNAPSHOT_EVERY = 5
 
 
 def _summary_for_record(summary):
@@ -333,6 +341,7 @@ async def handle_puzzle(
                 f"[{counter['done']}/~{n_requested}] {p1}/{p2} sid={row.sid}"
                 f"  SOLVED at {phase}  {elapsed:.0f}s"
             )
+            maybe_take_snapshot(counter["done"], every=TRACEMALLOC_SNAPSHOT_EVERY)
             return
 
         if asp_code:
@@ -356,9 +365,14 @@ async def handle_puzzle(
         f"[{counter['done']}/~{n_requested}] {p1}/{p2} sid={row.sid}"
         f"  UNSOLVED after {max_refinement} refinement(s)  {elapsed:.0f}s"
     )
+    maybe_take_snapshot(counter["done"], every=TRACEMALLOC_SNAPSHOT_EVERY)
 
 
 async def main(args):
+    # Start tracemalloc as early as possible so it observes allocations made
+    # by the engine init and the first chat requests. See docs/diagnostics.md.
+    start_tracemalloc()
+
     with open(args.prompt_template, encoding="utf-8") as f:
         template = f.read()
 
