@@ -10,8 +10,6 @@ The server owns chat-template rendering (Harmony) and continuous batching.
     server-side scheduler bounds GPU concurrency at --max-num-seqs and
     queues the rest. The GPU stays saturated as long as vLLM's waiting
     queue is non-empty, which it will be for any non-trivial run.
-  - We still track an in-flight counter for instrumentation (no upper
-    bound to compare against — just useful as an observed value over time).
 """
 
 import asyncio
@@ -51,11 +49,6 @@ class VLLMEngine:
             timeout=VLLM_REQUEST_TIMEOUT,
         )
 
-        # In-flight bookkeeping for instrumentation. Updated only between
-        # awaits, so plain integer arithmetic is safe under asyncio.
-        self._in_flight = 0
-        self._max_in_flight_seen = 0
-
         logger.debug(
             f"VLLMEngine client pointing at http://{host}:{port}/v1  "
             f"(seed={self.seed}, server_max_num_seqs={MAX_NUM_SEQS})"
@@ -76,38 +69,30 @@ class VLLMEngine:
         return reasoning, text
 
     async def _one_chat(self, messages, n=1):
-        self._in_flight += 1
-        if self._in_flight > self._max_in_flight_seen:
-            self._max_in_flight_seen = self._in_flight
-        logger.debug(f"vLLM REQ start  in_flight={self._in_flight}")
-        try:
-            resp = await self.client.chat.completions.create(
-                model=MODEL_REPO_ID,
-                messages=messages,
-                n=n,
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-                top_p=TOP_P,
-                seed=self.seed,
-                # GPT-OSS uses reasoning_effort; Nemotron uses chat_template_kwargs.
-                extra_body=(
-                    {
-                        "top_k": TOP_K,
-                        "chat_template_kwargs": {"enable_thinking": True},
-                    }
-                    if MODEL_FAMILY == "nemo"
-                    else {
-                        "top_k": TOP_K,
-                        "include_reasoning": True,
-                        "reasoning_effort": REASONING_EFFORT,
-                    }
-                ),
-            )
-            choices = resp.model_dump()["choices"]
-            return [self._extract_message(c["message"]) for c in choices]
-        finally:
-            self._in_flight -= 1
-            logger.debug(f"vLLM REQ done   in_flight={self._in_flight}")
+        resp = await self.client.chat.completions.create(
+            model=MODEL_REPO_ID,
+            messages=messages,
+            n=n,
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            top_p=TOP_P,
+            seed=self.seed,
+            # GPT-OSS uses reasoning_effort; Nemotron uses chat_template_kwargs.
+            extra_body=(
+                {
+                    "top_k": TOP_K,
+                    "chat_template_kwargs": {"enable_thinking": True},
+                }
+                if MODEL_FAMILY == "nemo"
+                else {
+                    "top_k": TOP_K,
+                    "include_reasoning": True,
+                    "reasoning_effort": REASONING_EFFORT,
+                }
+            ),
+        )
+        choices = resp.model_dump()["choices"]
+        return [self._extract_message(c["message"]) for c in choices]
 
     async def chat_async(self, messages):
         """Send one chat completion (n=1). Returns (thinking, response).

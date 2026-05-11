@@ -61,12 +61,7 @@ from config.config_llm import (
 from config.config_nvarc import NVARC_ASP_PROMPT
 from llm.vllm_engine import VLLMEngine
 from utils.asp_validator import validate_asp_program
-from utils.diagnostics import (
-    diagnostics_sampler,
-    maybe_take_snapshot,
-    start_tracemalloc,
-    vmrss_gb,
-)
+from utils.clingo_pool import init_pool, shutdown_pool
 from utils.logger import setup_logging, get_logger
 from utils.nvarc_data import load_grid_pairs
 from utils.nvarc_formatting import (
@@ -92,13 +87,6 @@ logger = get_logger(__name__)
 # Sentinel trigger for the "no asp block was extracted" refinement path.
 # Distinct from the four Clingo-failure triggers in categorize_first_failure().
 NO_BLOCK_TRIGGER = "no_block"
-
-# Per-call RSS-delta logging threshold (GB). Calls whose surrounding RSS grows
-# by more than this are logged at WARNING. Pure observation: see docs/diagnostics.md.
-RSS_DELTA_LOG_THRESHOLD_GB = 1.0
-
-# How often (in completed puzzles) to take a tracemalloc snapshot.
-TRACEMALLOC_SNAPSHOT_EVERY = 5
 
 
 def _summary_for_record(summary):
@@ -274,46 +262,19 @@ async def handle_puzzle(
                 feedback_message=feedback,
             )
 
-        rss_before_chat = vmrss_gb()
         try:
             thinking, response = await engine.chat_async(msgs)
         except Exception as e:
             logger.error(f"{p1}/{p2} round {round_num}: vLLM error — {e}")
             counter["errored"] += 1
             return
-        rss_after_chat = vmrss_gb()
-        if (
-            rss_before_chat is not None
-            and rss_after_chat is not None
-            and rss_after_chat - rss_before_chat > RSS_DELTA_LOG_THRESHOLD_GB
-        ):
-            logger.warning(
-                f"DIAG chat_async rss_delta={rss_after_chat - rss_before_chat:.1f}GB"
-                f"  before={rss_before_chat:.1f}GB after={rss_after_chat:.1f}GB"
-                f"  {p1}/{p2} round={round_num}"
-                f"  msg_chars={sum(len(m.get('content', '')) for m in msgs)}"
-                f"  resp_chars={len(response)} thinking_chars={len(thinking)}"
-            )
 
         asp_code = _try_extract_asp_block(response)
-        if asp_code:
-            rss_before_val = vmrss_gb()
-            summary = await asyncio.to_thread(validate_asp_program, asp_code, p1, p2)
-            rss_after_val = vmrss_gb()
-            if (
-                rss_before_val is not None
-                and rss_after_val is not None
-                and rss_after_val - rss_before_val > RSS_DELTA_LOG_THRESHOLD_GB
-            ):
-                logger.warning(
-                    f"DIAG validate rss_delta={rss_after_val - rss_before_val:.1f}GB"
-                    f"  before={rss_before_val:.1f}GB after={rss_after_val:.1f}GB"
-                    f"  {p1}/{p2} round={round_num}"
-                    f"  asp_chars={len(asp_code)}"
-                    f"  passed={summary['passed']} correct={summary['correct']}/{summary['total']}"
-                )
-        else:
-            summary = None
+        summary = (
+            await asyncio.to_thread(validate_asp_program, asp_code, p1, p2)
+            if asp_code
+            else None
+        )
 
         record = _make_record(
             row=row,
@@ -341,7 +302,6 @@ async def handle_puzzle(
                 f"[{counter['done']}/~{n_requested}] {p1}/{p2} sid={row.sid}"
                 f"  SOLVED at {phase}  {elapsed:.0f}s"
             )
-            maybe_take_snapshot(counter["done"], every=TRACEMALLOC_SNAPSHOT_EVERY)
             return
 
         if asp_code:
@@ -365,13 +325,13 @@ async def handle_puzzle(
         f"[{counter['done']}/~{n_requested}] {p1}/{p2} sid={row.sid}"
         f"  UNSOLVED after {max_refinement} refinement(s)  {elapsed:.0f}s"
     )
-    maybe_take_snapshot(counter["done"], every=TRACEMALLOC_SNAPSHOT_EVERY)
 
 
 async def main(args):
-    # Start tracemalloc as early as possible so it observes allocations made
-    # by the engine init and the first chat requests. See docs/diagnostics.md.
-    start_tracemalloc()
+    # Initialise the Clingo process pool before any threads are started in
+    # the parent (httpx feeders, etc.) — keeps spawn cheap and rules out
+    # multi-threaded-fork issues if the start method is later changed.
+    init_pool()
 
     with open(args.prompt_template, encoding="utf-8") as f:
         template = f.read()
@@ -381,10 +341,6 @@ async def main(args):
 
     counter = {"done": 0, "solved": 0, "skipped": 0, "errored": 0}
     t0 = time.perf_counter()
-
-    # Background memory + concurrency sampler. Pure observation, see
-    # docs/diagnostics.md for how to read its output. Cancelled at shutdown.
-    sampler_task = asyncio.create_task(diagnostics_sampler(interval=10.0))
 
     # Bounded worker pool. The sampler is iterated lazily on the producer
     # side, and the queue's small maxsize means a row only enters RAM when
@@ -421,28 +377,25 @@ async def main(args):
         f"from the sampler."
     )
 
-    # Producer: feed rows into the queue. queue.put() blocks when all
-    # workers are busy, which is the backpressure that keeps RAM bounded.
-    # The sampler reads parquets synchronously, so wrap iteration in a
-    # thread to avoid stalling the event loop on disk I/O between rows.
-    sampler_iter = iter(sample_puzzles(args.n))
-    while True:
-        item = await asyncio.to_thread(next, sampler_iter, None)
-        if item is None:
-            break
-        await queue.put(item)
-
-    # Poison-pill each worker so they exit cleanly.
-    for _ in range(n_workers):
-        await queue.put(None)
-
-    await asyncio.gather(*workers)
-
-    sampler_task.cancel()
     try:
-        await sampler_task
-    except asyncio.CancelledError:
-        pass
+        # Producer: feed rows into the queue. queue.put() blocks when all
+        # workers are busy, which is the backpressure that keeps RAM bounded.
+        # The sampler reads parquets synchronously, so wrap iteration in a
+        # thread to avoid stalling the event loop on disk I/O between rows.
+        sampler_iter = iter(sample_puzzles(args.n))
+        while True:
+            item = await asyncio.to_thread(next, sampler_iter, None)
+            if item is None:
+                break
+            await queue.put(item)
+
+        # Poison-pill each worker so they exit cleanly.
+        for _ in range(n_workers):
+            await queue.put(None)
+
+        await asyncio.gather(*workers)
+    finally:
+        shutdown_pool()
 
     elapsed = time.perf_counter() - t0
     unsolved = counter["done"] - counter["solved"]
@@ -451,9 +404,6 @@ async def main(args):
         f"solved={counter['solved']}/{counter['done']}, unsolved={unsolved}, "
         f"skipped={counter['skipped']}, errored={counter['errored']}.  "
         f"Results in {args.output_file}"
-    )
-    logger.info(
-        f"Peak in-flight requests (client side): {engine._max_in_flight_seen}"
     )
 
 

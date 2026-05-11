@@ -16,6 +16,13 @@ ALLOWED_LOGGERS = ("__main__", "llm", "utils")
 CLINGO_TIMEOUT = 5  # seconds per ground/solve phase
 CLINGO_MAX_MODELS = 2  # stop after 2 — enough to detect ambiguity
 
+# Clingo grounding+solving runs in a pool of long-lived child processes so
+# that timed-out jobs can be force-killed (clingo.Control.ground() has no
+# cancellation API and Python threads can't be killed). Workers are also
+# recycled preventively after MAX_JOBS jobs to bound allocator drift.
+CLINGO_POOL_WORKERS = int(os.environ.get("CLINGO_POOL_WORKERS", "4"))
+CLINGO_WORKER_MAX_JOBS = int(os.environ.get("CLINGO_WORKER_MAX_JOBS", "200"))
+
 # Refinement loop
 MAX_REFINEMENT_ATTEMPTS = 2  # max rounds of fix-and-retry per candidate
 

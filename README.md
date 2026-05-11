@@ -32,6 +32,8 @@ Extracts the ASP block from the model response, then runs it against all 30 inpu
 
 All 30 pairs must pass for the program to be considered correct.
 
+Grounding and solving run in a fixed-size pool of long-lived child processes (`utils/clingo_pool.py`). `clingo.Control.ground()` has no cancellation API and Python threads can't be force-killed, so a thread-based timeout (the previous design) returned to the caller but left the C grounder running and accumulating memory in the background — under load with pathological LLM-generated programs this leaked tens of GB. The pool dispatches each job to a worker process and SIGKILLs+respawns any worker that doesn't reply within `CLINGO_TIMEOUT`. Workers are also recycled after `CLINGO_WORKER_MAX_JOBS` successful jobs to bound slow allocator drift.
+
 ### Step 4 — Refinement loop
 Puzzles whose initial generation fails (Clingo error, UNSAT, multiple answer sets, wrong cells, or no extractable ` ```asp ``` ` block) enter a refinement loop. For up to `MAX_REFINEMENT_ATTEMPTS` rounds, the failure is fed back to the model as a follow-up user turn:
 
@@ -41,27 +43,6 @@ Puzzles whose initial generation fails (Clingo error, UNSAT, multiple answer set
 - Reasoning traces (`thinking`) are **never** replayed as assistant content — only the visible response is. This avoids a runaway prompt that would exceed `max-model-len` when the previous round burned its full token budget on reasoning.
 
 There are no separate refinement phases — each puzzle's coroutine simply loops `gen → validate → maybe-build-feedback → gen → ...` until it solves or hits the round budget. Refinement requests share vLLM's queue with initial requests from other puzzles, so the GPU stays fully utilized regardless of how many puzzles are at which stage. A puzzle that exits its loop frees its worker slot, which immediately picks up the next puzzle from the sampler — bounded RAM, continuous throughput.
-
-### Throughput instrumentation
-`VLLMEngine` tracks the number of in-flight requests and logs it at every request start and finish (at `LOG_LEVEL=debug`, which is the default):
-
-```
-vLLM REQ start  in_flight=87
-vLLM REQ done   in_flight=86
-```
-
-The count is simply "requests we've submitted but not gotten a response back for yet." It is naturally bounded by `MAX_CONCURRENT_PUZZLES`, since each worker holds at most one outstanding request. Of those in flight, `--max-num-seqs` are running on the GPU at any moment and the rest are queued in vLLM's waiting queue.
-
-The asctime prefix from the log formatter pairs each line with a timestamp, so the slurm log is enough to reconstruct concurrency over the run. At end of run, `main` also logs the peak in-flight count observed:
-
-```
-Peak in-flight requests (client side): 100
-```
-
-Diagnostics:
-- **Peak ≈ `MAX_CONCURRENT_PUZZLES`** → all workers spend most of their time waiting on vLLM (the normal steady state). vLLM's queue is fed continuously, GPU stays busy.
-- **Peak noticeably below `MAX_CONCURRENT_PUZZLES` but ≥ `MAX_NUM_SEQS`** → workers are spending non-trivial time in Clingo validation rather than waiting on vLLM. GPU still busy.
-- **Peak below `MAX_NUM_SEQS`** → not enough work is being submitted (e.g., end-of-run drain when fewer puzzles remain than vLLM can run in parallel). If observed mid-run, raise `MAX_CONCURRENT_PUZZLES`.
 
 ### Output format
 Records for every generation (initial and each refinement round) are appended to a JSONL file (`outputs/batch_<SLURM_JOB_ID>.jsonl`). The unique key is `(puzzle_name1, puzzle_name2, sid, refinement_round)`. Each record:
@@ -127,6 +108,8 @@ All tuneable parameters are read from environment variables. The SLURM jobs expo
 |---|---|---|
 | `MAX_NUM_SEQS` | `8` / `36` | vLLM `--max-num-seqs` (parallel decodes on the GPU). The waiting queue is fed by ~`MAX_CONCURRENT_PUZZLES` worker coroutines on the client side |
 | `MAX_CONCURRENT_PUZZLES` | `100` | Client-side worker-pool size. Caps how many puzzles are alive in RAM at any moment; each worker drives one puzzle's `gen → validate → refine` loop end-to-end |
+| `CLINGO_POOL_WORKERS` | `4` | Number of child processes that run Clingo grounding+solving. Cap on simultaneous grounding work — pathological programs that time out are isolated to at most this many concurrent processes, each force-killable on timeout |
+| `CLINGO_WORKER_MAX_JOBS` | `200` | Recycle a Clingo worker after this many jobs (kills + respawns) to bound C-allocator drift across long runs |
 | `REASONING_EFFORT` | `high` | GPT-OSS reasoning budget: `low`, `medium`, or `high` |
 | `VLLM_HOST` | `127.0.0.1` | vLLM server host |
 | `VLLM_PORT` | `8001` | vLLM server port |
@@ -161,7 +144,7 @@ src/
     config_nvarc.py        NVARC data paths & prompt template path
   llm/
     vllm_engine.py         async vLLM client (OpenAI-compatible) with streaming
-                           batch generator and in-flight instrumentation
+                           batch generator
   prompts/
     nvarc_asp_translation.txt  prompt template for Python→ASP translation
     smoke_test.txt
@@ -171,7 +154,8 @@ src/
     nvarc_sampler.py       weighted random sampler across all parquets
     nvarc_formatting.py    extraction (puzzle XML, Python code, ASP block) + fact generation
     asp_validator.py       orchestrates Clingo validation across all grid pairs
-    clingo_runner.py       Clingo ground/solve with threading timeouts
+    clingo_runner.py       thin dispatch into the Clingo process pool
+    clingo_pool.py         pool of child processes for grounding+solving with hard timeouts
     refinement.py          failure categorization + feedback message builders
     output_writer.py       thread-safe append-only JSONL writer
     logger.py
