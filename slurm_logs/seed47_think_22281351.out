@@ -1,0 +1,299 @@
+=== Syntax repair run ===
+  SEED=47
+  NUM=20
+  RUN_NAME=seed47_think
+  AUDIT_RUN=20260426_123318
+  ALL_AUDITS=0
+  AGENT_THINKING=true
+=========================
+Audit run: 20260426_123318
+Collected 60 unique broken programs
+Sampled 20 puzzles using seed=47
+THINKING=ON (set via AGENT_THINKING env var)
+2026-04-27 14:26:00,450 [DEBUG] agent.vllm_engine - __init__:52 > Using seed=47
+2026-04-27 14:26:00,455 [DEBUG] agent.vllm_engine - __init__:54 > Resolving snapshot for chankhavu/Nemotron-Cascade-2-30B-A3B-NVFP4
+Fetching 14 files:   0%|          | 0/14 [00:00<?, ?it/s]Fetching 14 files: 100%|██████████| 14/14 [00:00<00:00, 11725.29it/s]
+2026-04-27 14:26:00,627 [INFO] agent.vllm_engine - __init__:66 > Loading model from /scratch-shared/dlindberg/hf_cache/hub/models--chankhavu--Nemotron-Cascade-2-30B-A3B-NVFP4/snapshots/80ee3ccfe8cb5eb019a0cde78449e8b197a0155f
+INFO 04-27 14:26:00 [utils.py:233] non-default args: {'trust_remote_code': True, 'kv_cache_dtype': 'fp8', 'seed': 47, 'max_model_len': 262144, 'gpu_memory_utilization': 0.95, 'max_num_batched_tokens': 8192, 'max_num_seqs': 40, 'disable_log_stats': True, 'mamba_ssm_cache_dtype': 'float32', 'model': '/scratch-shared/dlindberg/hf_cache/hub/models--chankhavu--Nemotron-Cascade-2-30B-A3B-NVFP4/snapshots/80ee3ccfe8cb5eb019a0cde78449e8b197a0155f'}
+INFO 04-27 14:26:00 [model.py:549] Resolved architecture: NemotronHForCausalLM
+INFO 04-27 14:26:00 [model.py:1678] Using max model len 262144
+INFO 04-27 14:26:02 [cache.py:227] Using fp8 data type to store kv cache. It reduces the GPU memory footprint and boosts the performance. Meanwhile, it may cause accuracy drop without a proper scaling factor.
+INFO 04-27 14:26:02 [scheduler.py:238] Chunked prefill is enabled with max_num_batched_tokens=8192.
+INFO 04-27 14:26:02 [config.py:281] Setting attention block size to 4176 tokens to ensure that attention page size is >= mamba page size.
+INFO 04-27 14:26:02 [config.py:312] Padding mamba page size by 0.19% to ensure that mamba page size and attention page size are exactly equal.
+WARNING 04-27 14:26:02 [modelopt.py:998] Detected ModelOpt NVFP4 checkpoint. Please note that the format is experimental and could change in future.
+INFO 04-27 14:26:02 [vllm.py:790] Asynchronous scheduling is enabled.
+INFO 04-27 14:26:02 [compilation.py:292] Enabled custom fusions: act_quant
+(EngineCore pid=1908636) INFO 04-27 14:26:04 [core.py:105] Initializing a V1 LLM engine (v0.19.1) with config: model='/scratch-shared/dlindberg/hf_cache/hub/models--chankhavu--Nemotron-Cascade-2-30B-A3B-NVFP4/snapshots/80ee3ccfe8cb5eb019a0cde78449e8b197a0155f', speculative_config=None, tokenizer='/scratch-shared/dlindberg/hf_cache/hub/models--chankhavu--Nemotron-Cascade-2-30B-A3B-NVFP4/snapshots/80ee3ccfe8cb5eb019a0cde78449e8b197a0155f', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=True, dtype=torch.bfloat16, max_seq_len=262144, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=modelopt_fp4, enforce_eager=False, enable_return_routed_experts=False, kv_cache_dtype=fp8, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False), seed=47, served_model_name=/scratch-shared/dlindberg/hf_cache/hub/models--chankhavu--Nemotron-Cascade-2-30B-A3B-NVFP4/snapshots/80ee3ccfe8cb5eb019a0cde78449e8b197a0155f, enable_prefix_caching=False, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::olmo_hybrid_gdn_full_forward', 'vllm::kda_attention', 'vllm::sparse_attn_indexer', 'vllm::rocm_aiter_sparse_attn_indexer', 'vllm::unified_kv_cache_update', 'vllm::unified_mla_kv_cache_update'], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_images_per_batch': 0, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'size_asserts': False, 'alignment_asserts': False, 'scalar_asserts': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': True, 'fuse_attn_quant': False, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 80, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': True, 'static_all_moe_layers': []}
+(EngineCore pid=1908636) INFO 04-27 14:26:04 [parallel_state.py:1400] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://145.136.62.104:41425 backend=nccl
+(EngineCore pid=1908636) INFO 04-27 14:26:04 [parallel_state.py:1716] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0, EPLB rank N/A
+(EngineCore pid=1908636) INFO 04-27 14:26:05 [gpu_model_runner.py:4735] Starting to load model /scratch-shared/dlindberg/hf_cache/hub/models--chankhavu--Nemotron-Cascade-2-30B-A3B-NVFP4/snapshots/80ee3ccfe8cb5eb019a0cde78449e8b197a0155f...
+(EngineCore pid=1908636) INFO 04-27 14:26:05 [nvfp4_utils.py:85] Using NvFp4LinearBackend.MARLIN for NVFP4 GEMM
+(EngineCore pid=1908636) INFO 04-27 14:26:06 [nvfp4.py:256] Using 'MARLIN' NvFp4 MoE backend out of potential backends: ['FLASHINFER_TRTLLM', 'FLASHINFER_CUTEDSL', 'FLASHINFER_CUTLASS', 'VLLM_CUTLASS', 'MARLIN'].
+(EngineCore pid=1908636) INFO 04-27 14:26:06 [cuda.py:334] Using FLASH_ATTN attention backend out of potential backends: ['FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN'].
+(EngineCore pid=1908636) INFO 04-27 14:26:06 [flash_attn.py:596] Using FlashAttention version 3
+(EngineCore pid=1908636) 2026-04-27 14:26:06,709 [WARNING] py.warnings - _showwarnmsg:110 > <frozen importlib._bootstrap_external>:1328: FutureWarning: The cuda.cudart module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.runtime module instead.
+(EngineCore pid=1908636) 
+(EngineCore pid=1908636) 2026-04-27 14:26:06,713 [WARNING] py.warnings - _showwarnmsg:110 > <frozen importlib._bootstrap_external>:1328: FutureWarning: The cuda.nvrtc module is deprecated and will be removed in a future release, please switch to use the cuda.bindings.nvrtc module instead.
+(EngineCore pid=1908636) 
+(EngineCore pid=1908636) Loading safetensors checkpoint shards:   0% Completed | 0/4 [00:00<?, ?it/s]
+(EngineCore pid=1908636) Loading safetensors checkpoint shards:  25% Completed | 1/4 [00:06<00:18,  6.32s/it]
+(EngineCore pid=1908636) Loading safetensors checkpoint shards:  50% Completed | 2/4 [00:15<00:16,  8.17s/it]
+(EngineCore pid=1908636) Loading safetensors checkpoint shards:  75% Completed | 3/4 [00:26<00:09,  9.28s/it]
+(EngineCore pid=1908636) Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:37<00:00, 10.17s/it]
+(EngineCore pid=1908636) Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:37<00:00,  9.48s/it]
+(EngineCore pid=1908636) 
+(EngineCore pid=1908636) INFO 04-27 14:26:44 [default_loader.py:384] Loading weights took 37.99 seconds
+(EngineCore pid=1908636) WARNING 04-27 14:26:44 [nvfp4_utils.py:144] Your GPU does not have native support for FP4 computation but FP4 quantization is being used. Weight-only FP4 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.
+(EngineCore pid=1908636) WARNING 04-27 14:26:44 [marlin_utils_fp4.py:298] Your GPU does not have native support for FP4 computation but FP4 quantization is being used. Weight-only FP4 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.
+(EngineCore pid=1908636) INFO 04-27 14:26:45 [nvfp4.py:401] Using MoEPrepareAndFinalizeNoDPEPModular
+(EngineCore pid=1908636) WARNING 04-27 14:26:45 [kv_cache.py:94] Checkpoint does not provide a q scaling factor. Setting it to k_scale. This only matters for FP8 Attention backends (flash-attn or flashinfer).
+(EngineCore pid=1908636) WARNING 04-27 14:26:45 [kv_cache.py:108] Using KV cache scaling factor 1.0 for fp8_e4m3. If this is unintended, verify that k/v_scale scaling factors are properly set in the checkpoint.
+(EngineCore pid=1908636) WARNING 04-27 14:26:45 [kv_cache.py:147] Using uncalibrated q_scale 1.0 and/or prob_scale 1.0 with fp8 attention. This may cause accuracy issues. Please make sure q/prob scaling factors are available in the fp8 checkpoint.
+(EngineCore pid=1908636) INFO 04-27 14:26:47 [gpu_model_runner.py:4820] Model loading took 18.03 GiB memory and 40.832609 seconds
+(EngineCore pid=1908636) INFO 04-27 14:26:49 [backends.py:1051] Using cache directory: /home/dlindberg/.cache/vllm/torch_compile_cache/bb5b0a4e21/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore pid=1908636) INFO 04-27 14:26:49 [backends.py:1111] Dynamo bytecode transform time: 2.45 s
+(EngineCore pid=1908636) INFO 04-27 14:26:51 [backends.py:285] Directly load the compiled graph(s) for compile range (1, 8192) from the cache, took 1.073 s
+(EngineCore pid=1908636) INFO 04-27 14:26:51 [decorators.py:305] Directly load AOT compilation from path /home/dlindberg/.cache/vllm/torch_compile_cache/torch_aot_compile/53dc0f97ca5085a5aea70207184ab9a7007d0e30c1bd7d0f7636d88b8ddb2d8e/rank_0_0/model
+(EngineCore pid=1908636) INFO 04-27 14:26:51 [monitor.py:48] torch.compile took 3.76 s in total
+(EngineCore pid=1908636) INFO 04-27 14:26:53 [monitor.py:76] Initial profiling/warmup run took 2.27 s
+(EngineCore pid=1908636) WARNING 04-27 14:26:53 [kv_cache_utils.py:1059] Add 1 padding layers, may waste at most 4.35% KV cache memory
+(EngineCore pid=1908636) INFO 04-27 14:26:53 [kv_cache_utils.py:829] Overriding num_gpu_blocks=0 with num_gpu_blocks_override=80
+(EngineCore pid=1908636) INFO 04-27 14:26:53 [gpu_model_runner.py:5876] Profiling CUDA graph memory: PIECEWISE=13 (largest=80), FULL=8 (largest=40)
+(EngineCore pid=1908636) INFO 04-27 14:26:55 [gpu_model_runner.py:5955] Estimated CUDA graph memory: 0.19 GiB total
+(EngineCore pid=1908636) INFO 04-27 14:26:55 [gpu_worker.py:436] Available KV cache memory: 68.97 GiB
+(EngineCore pid=1908636) INFO 04-27 14:26:55 [gpu_worker.py:470] In v0.19, CUDA graph memory profiling will be enabled by default (VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1), which more accurately accounts for CUDA graph memory during KV cache allocation. To try it now, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 and increase --gpu-memory-utilization from 0.9500 to 0.9521 to maintain the same effective KV cache size.
+(EngineCore pid=1908636) WARNING 04-27 14:26:55 [kv_cache_utils.py:1059] Add 1 padding layers, may waste at most 4.35% KV cache memory
+(EngineCore pid=1908636) INFO 04-27 14:26:55 [kv_cache_utils.py:1319] GPU KV cache size: 4,819,104 tokens
+(EngineCore pid=1908636) INFO 04-27 14:26:55 [kv_cache_utils.py:1324] Maximum concurrency for 262,144 tokens per request: 86.16x
+(EngineCore pid=1908636) 2026-04-27 14:26:55,712 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore pid=1908636) 2026-04-27 14:26:55,743 - INFO - autotuner.py:268 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore pid=1908636) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/13 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  15%|█▌        | 2/13 [00:00<00:00, 15.43it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  31%|███       | 4/13 [00:00<00:00, 14.48it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  46%|████▌     | 6/13 [00:00<00:00, 14.52it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  62%|██████▏   | 8/13 [00:00<00:00, 14.39it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  77%|███████▋  | 10/13 [00:00<00:00, 14.17it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  92%|█████████▏| 12/13 [00:00<00:00, 14.50it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 13/13 [00:01<00:00, 10.89it/s]
+(EngineCore pid=1908636) Capturing CUDA graphs (decode, FULL):   0%|          | 0/8 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL):  25%|██▌       | 2/8 [00:00<00:00, 12.47it/s]Capturing CUDA graphs (decode, FULL):  50%|█████     | 4/8 [00:00<00:00, 13.38it/s]Capturing CUDA graphs (decode, FULL):  75%|███████▌  | 6/8 [00:00<00:00, 13.70it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 8/8 [00:00<00:00, 13.56it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 8/8 [00:00<00:00, 13.47it/s]
+(EngineCore pid=1908636) INFO 04-27 14:26:58 [gpu_model_runner.py:6046] Graph capturing finished in 2 secs, took 0.17 GiB
+(EngineCore pid=1908636) INFO 04-27 14:26:58 [gpu_worker.py:597] CUDA graph pool memory: 0.17 GiB (actual), 0.19 GiB (estimated), difference: 0.02 GiB (13.8%).
+(EngineCore pid=1908636) INFO 04-27 14:26:58 [core.py:283] init engine (profile, create kv cache, warmup model) took 11.09 seconds
+2026-04-27 14:26:58,585 [INFO] agent.vllm_engine - __init__:89 > Model loaded in 57.96s
+2026-04-27 14:26:58,586 [DEBUG] agent.vllm_engine - __init__:109 > Stop token ids: [11]
+2026-04-27 14:26:58,623 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:175 > Generating batch of 10 prompts (with token counts, max_tokens=32768)...
+Rendering prompts:   0%|          | 0/10 [00:00<?, ?it/s]Rendering prompts: 100%|██████████| 10/10 [00:00<00:00, 113.24it/s]
+Processed prompts:   0%|          | 0/10 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  10%|█         | 1/10 [00:01<00:15,  1.76s/it, est. speed input: 1845.72 toks/s, output: 32.89 toks/s]Processed prompts:  20%|██        | 2/10 [00:02<00:07,  1.00it/s, est. speed input: 3255.14 toks/s, output: 81.05 toks/s]Processed prompts:  30%|███       | 3/10 [00:04<00:12,  1.79s/it, est. speed input: 2271.69 toks/s, output: 156.02 toks/s]Processed prompts:  40%|████      | 4/10 [00:26<00:57,  9.59s/it, est. speed input: 552.63 toks/s, output: 183.38 toks/s] Processed prompts:  50%|█████     | 5/10 [00:29<00:36,  7.38s/it, est. speed input: 600.62 toks/s, output: 317.46 toks/s]Processed prompts:  60%|██████    | 6/10 [00:33<00:24,  6.10s/it, est. speed input: 646.95 toks/s, output: 439.74 toks/s]Processed prompts:  70%|███████   | 7/10 [00:38<00:17,  5.82s/it, est. speed input: 652.26 toks/s, output: 543.41 toks/s]Processed prompts:  80%|████████  | 8/10 [00:41<00:09,  4.88s/it, est. speed input: 706.45 toks/s, output: 671.76 toks/s]Processed prompts:  90%|█████████ | 9/10 [01:11<00:12, 12.65s/it, est. speed input: 466.63 toks/s, output: 590.78 toks/s]Processed prompts: 100%|██████████| 10/10 [01:21<00:00, 11.76s/it, est. speed input: 455.05 toks/s, output: 728.31 toks/s]Processed prompts: 100%|██████████| 10/10 [01:21<00:00, 11.76s/it, est. speed input: 455.05 toks/s, output: 728.31 toks/s]Processed prompts: 100%|██████████| 10/10 [01:21<00:00,  8.12s/it, est. speed input: 455.05 toks/s, output: 728.31 toks/s]
+2026-04-27 14:28:19,912 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:181 > Generated 59138 tokens in 81.29s (727.50 tok/s)
+2026-04-27 14:28:19,915 [DEBUG] agent.syntax_repair_agent - run:239 >   Sub-batch took 153.6s
+2026-04-27 14:28:19,915 [DEBUG] agent.syntax_repair_agent - run:230 >   Sub-batch 2: 10 prompts
+2026-04-27 14:28:19,916 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:175 > Generating batch of 10 prompts (with token counts, max_tokens=32768)...
+Rendering prompts:   0%|          | 0/10 [00:00<?, ?it/s]Rendering prompts: 100%|██████████| 10/10 [00:00<00:00, 153.32it/s]
+Processed prompts:   0%|          | 0/10 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  10%|█         | 1/10 [00:01<00:15,  1.72s/it, est. speed input: 2509.78 toks/s, output: 50.51 toks/s]Processed prompts:  20%|██        | 2/10 [00:02<00:08,  1.11s/it, est. speed input: 3396.42 toks/s, output: 112.63 toks/s]Processed prompts:  30%|███       | 3/10 [00:13<00:40,  5.76s/it, est. speed input: 854.18 toks/s, output: 173.17 toks/s] Processed prompts:  40%|████      | 4/10 [00:15<00:26,  4.38s/it, est. speed input: 968.39 toks/s, output: 303.26 toks/s]Processed prompts:  50%|█████     | 5/10 [00:24<00:28,  5.76s/it, est. speed input: 788.61 toks/s, output: 358.05 toks/s]Processed prompts:  60%|██████    | 6/10 [00:26<00:18,  4.51s/it, est. speed input: 878.27 toks/s, output: 488.10 toks/s]Processed prompts:  70%|███████   | 7/10 [00:34<00:17,  5.88s/it, est. speed input: 767.31 toks/s, output: 536.24 toks/s]Processed prompts:  80%|████████  | 8/10 [00:56<00:21, 10.90s/it, est. speed input: 542.91 toks/s, output: 513.72 toks/s]Processed prompts:  90%|█████████ | 9/10 [01:08<00:11, 11.29s/it, est. speed input: 501.58 toks/s, output: 616.40 toks/s]Processed prompts: 100%|██████████| 10/10 [01:15<00:00,  9.91s/it, est. speed input: 509.24 toks/s, output: 762.26 toks/s]Processed prompts: 100%|██████████| 10/10 [01:15<00:00,  9.91s/it, est. speed input: 509.24 toks/s, output: 762.26 toks/s]Processed prompts: 100%|██████████| 10/10 [01:15<00:00,  7.56s/it, est. speed input: 509.24 toks/s, output: 762.26 toks/s]
+2026-04-27 14:29:35,542 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:181 > Generated 57596 tokens in 75.63s (761.59 tok/s)
+2026-04-27 14:29:35,546 [DEBUG] agent.syntax_repair_agent - run:239 >   Sub-batch took 75.6s
+2026-04-27 14:29:35,546 [INFO] agent.syntax_repair_agent - run:282 > Puzzle 88a10436: no_tool_calls (no blocks found)
+2026-04-27 14:29:35,580 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (921 chars)
+2026-04-27 14:29:35,584 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:29:35,584 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (921 chars)
+2026-04-27 14:29:35,585 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:29:35,586 [INFO] agent.syntax_repair_agent - run:294 > Puzzle d5d6de2d: round 0, 5 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,586 [INFO] agent.syntax_repair_agent - run:311 > Puzzle d5d6de2d: FIXED!
+2026-04-27 14:29:35,586 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (456 chars)
+2026-04-27 14:29:35,587 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:29:35,587 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (456 chars)
+2026-04-27 14:29:35,588 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:29:35,588 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 5521c0d9: round 0, 3 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,588 [INFO] agent.syntax_repair_agent - run:311 > Puzzle 5521c0d9: FIXED!
+2026-04-27 14:29:35,588 [INFO] agent.syntax_repair_agent - run:282 > Puzzle 4522001f: no_tool_calls (no blocks found)
+2026-04-27 14:29:35,588 [INFO] agent.syntax_repair_agent - run:282 > Puzzle 5521c0d9_1: no_tool_calls (no blocks found)
+2026-04-27 14:29:35,589 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1053 chars)
+2026-04-27 14:29:35,590 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,590 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1053 chars)
+2026-04-27 14:29:35,590 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,591 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 4522001f_1: round 0, 2 tool calls, 0 parse failures, 11 unique errors
+2026-04-27 14:29:35,591 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1629 chars)
+2026-04-27 14:29:35,592 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,592 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 88a10436_1: round 0, 4 tool calls, 0 parse failures, 5 unique errors
+2026-04-27 14:29:35,592 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (567 chars)
+2026-04-27 14:29:35,593 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,593 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (567 chars)
+2026-04-27 14:29:35,593 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,594 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (567 chars)
+2026-04-27 14:29:35,594 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,594 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 8a004b2b: round 0, 7 tool calls, 0 parse failures, 11 unique errors
+2026-04-27 14:29:35,595 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1863 chars)
+2026-04-27 14:29:35,595 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (6 messages)
+2026-04-27 14:29:35,595 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 54d9e175: round 0, 1 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,595 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (516 chars)
+2026-04-27 14:29:35,596 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,596 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (516 chars)
+2026-04-27 14:29:35,597 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,597 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 6aa20dc0: round 0, 2 tool calls, 0 parse failures, 7 unique errors
+2026-04-27 14:29:35,597 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1804 chars)
+2026-04-27 14:29:35,598 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:29:35,598 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 6aa20dc0_1: round 0, 1 tool calls, 2 parse failures, 1 unique errors
+2026-04-27 14:29:35,598 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (2210 chars)
+2026-04-27 14:29:35,598 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:29:35,598 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 3de23699: round 0, 4 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,599 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1281 chars)
+2026-04-27 14:29:35,600 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:29:35,601 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1281 chars)
+2026-04-27 14:29:35,602 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:29:35,602 [INFO] agent.syntax_repair_agent - run:294 > Puzzle feca6190: round 0, 4 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,602 [INFO] agent.syntax_repair_agent - run:311 > Puzzle feca6190: FIXED!
+2026-04-27 14:29:35,603 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (2055 chars)
+2026-04-27 14:29:35,603 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (2 messages)
+2026-04-27 14:29:35,603 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (2055 chars)
+2026-04-27 14:29:35,604 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (2 messages)
+2026-04-27 14:29:35,604 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 57aa92db: round 0, 2 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,604 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1027 chars)
+2026-04-27 14:29:35,605 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:29:35,605 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 39e1d7f9: round 0, 4 tool calls, 0 parse failures, 8 unique errors
+2026-04-27 14:29:35,605 [INFO] agent.syntax_repair_agent - run:282 > Puzzle feca6190_1: no_tool_calls (no blocks found)
+2026-04-27 14:29:35,605 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1409 chars)
+2026-04-27 14:29:35,605 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (7 messages)
+2026-04-27 14:29:35,606 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1409 chars)
+2026-04-27 14:29:35,606 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (7 messages)
+2026-04-27 14:29:35,606 [INFO] agent.syntax_repair_agent - run:294 > Puzzle bc1d5164: round 0, 10 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,606 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1348 chars)
+2026-04-27 14:29:35,607 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (2 messages)
+2026-04-27 14:29:35,607 [INFO] agent.syntax_repair_agent - run:294 > Puzzle feca6190_2: round 0, 2 tool calls, 1 parse failures, 1 unique errors
+2026-04-27 14:29:35,607 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1422 chars)
+2026-04-27 14:29:35,607 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:29:35,608 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1422 chars)
+2026-04-27 14:29:35,608 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:29:35,608 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 137eaa0f: round 0, 2 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,608 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1040 chars)
+2026-04-27 14:29:35,608 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:29:35,608 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 54d9e175_1: round 0, 1 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:29:35,609 [INFO] agent.syntax_repair_agent - run:215 > Round 1: 13 active puzzles
+2026-04-27 14:29:35,609 [DEBUG] agent.syntax_repair_agent - run:230 >   Sub-batch 1: 10 prompts
+2026-04-27 14:29:35,610 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:175 > Generating batch of 10 prompts (with token counts, max_tokens=32768)...
+Rendering prompts:   0%|          | 0/10 [00:00<?, ?it/s]Rendering prompts:  90%|█████████ | 9/10 [00:00<00:00, 89.39it/s]Rendering prompts: 100%|██████████| 10/10 [00:00<00:00, 92.17it/s]
+Processed prompts:   0%|          | 0/10 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  10%|█         | 1/10 [00:07<01:04,  7.18s/it, est. speed input: 580.68 toks/s, output: 104.91 toks/s]Processed prompts:  20%|██        | 2/10 [00:24<01:44, 13.10s/it, est. speed input: 904.84 toks/s, output: 157.37 toks/s]Processed prompts:  30%|███       | 3/10 [00:28<01:03,  9.06s/it, est. speed input: 935.32 toks/s, output: 266.80 toks/s]Processed prompts:  40%|████      | 4/10 [00:30<00:36,  6.07s/it, est. speed input: 1029.34 toks/s, output: 387.80 toks/s]Processed prompts:  50%|█████     | 5/10 [00:40<00:38,  7.62s/it, est. speed input: 879.94 toks/s, output: 430.19 toks/s] Processed prompts:  60%|██████    | 6/10 [00:43<00:23,  5.92s/it, est. speed input: 944.31 toks/s, output: 547.32 toks/s]Processed prompts:  70%|███████   | 7/10 [00:47<00:16,  5.37s/it, est. speed input: 939.22 toks/s, output: 646.82 toks/s]Processed prompts:  80%|████████  | 8/10 [00:52<00:10,  5.13s/it, est. speed input: 946.47 toks/s, output: 742.88 toks/s]Processed prompts:  90%|█████████ | 9/10 [00:54<00:04,  4.21s/it, est. speed input: 983.41 toks/s, output: 869.76 toks/s]Processed prompts: 100%|██████████| 10/10 [00:54<00:00,  3.01s/it, est. speed input: 1051.35 toks/s, output: 1022.27 toks/s]Processed prompts: 100%|██████████| 10/10 [00:54<00:00,  3.01s/it, est. speed input: 1051.35 toks/s, output: 1022.27 toks/s]Processed prompts: 100%|██████████| 10/10 [00:54<00:00,  5.45s/it, est. speed input: 1051.35 toks/s, output: 1022.27 toks/s]
+2026-04-27 14:30:30,256 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:181 > Generated 55751 tokens in 54.65s (1020.23 tok/s)
+2026-04-27 14:30:30,257 [DEBUG] agent.syntax_repair_agent - run:239 >   Sub-batch took 54.6s
+2026-04-27 14:30:30,258 [DEBUG] agent.syntax_repair_agent - run:230 >   Sub-batch 2: 3 prompts
+2026-04-27 14:30:30,258 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:175 > Generating batch of 3 prompts (with token counts, max_tokens=32768)...
+Rendering prompts:   0%|          | 0/3 [00:00<?, ?it/s]Rendering prompts: 100%|██████████| 3/3 [00:00<00:00, 122.65it/s]
+Processed prompts:   0%|          | 0/3 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  33%|███▎      | 1/3 [00:00<00:01,  1.30it/s, est. speed input: 4712.65 toks/s, output: 106.81 toks/s]Processed prompts:  67%|██████▋   | 2/3 [00:09<00:05,  5.37s/it, est. speed input: 905.28 toks/s, output: 243.92 toks/s] Processed prompts: 100%|██████████| 3/3 [00:12<00:00,  4.13s/it, est. speed input: 1044.31 toks/s, output: 435.85 toks/s]Processed prompts: 100%|██████████| 3/3 [00:12<00:00,  4.13s/it, est. speed input: 1044.31 toks/s, output: 435.85 toks/s]Processed prompts: 100%|██████████| 3/3 [00:12<00:00,  4.01s/it, est. speed input: 1044.31 toks/s, output: 435.85 toks/s]
+2026-04-27 14:30:42,299 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:181 > Generated 5237 tokens in 12.04s (434.94 tok/s)
+2026-04-27 14:30:42,303 [DEBUG] agent.syntax_repair_agent - run:239 >   Sub-batch took 12.0s
+2026-04-27 14:30:42,303 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1105 chars)
+2026-04-27 14:30:42,304 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,304 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 4522001f_1: round 1, 2 tool calls, 0 parse failures, 10 unique errors
+2026-04-27 14:30:42,305 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1697 chars)
+2026-04-27 14:30:42,305 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,306 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1697 chars)
+2026-04-27 14:30:42,306 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,307 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 88a10436_1: round 1, 2 tool calls, 0 parse failures, 5 unique errors
+2026-04-27 14:30:42,307 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (624 chars)
+2026-04-27 14:30:42,307 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,308 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (624 chars)
+2026-04-27 14:30:42,308 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,308 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 8a004b2b: round 1, 2 tool calls, 0 parse failures, 11 unique errors
+2026-04-27 14:30:42,309 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1845 chars)
+2026-04-27 14:30:42,309 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (6 messages)
+2026-04-27 14:30:42,309 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1845 chars)
+2026-04-27 14:30:42,310 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (6 messages)
+2026-04-27 14:30:42,310 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 54d9e175: round 1, 2 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:30:42,310 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (496 chars)
+2026-04-27 14:30:42,312 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:30:42,312 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (496 chars)
+2026-04-27 14:30:42,313 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:30:42,313 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 6aa20dc0: round 1, 6 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:30:42,313 [INFO] agent.syntax_repair_agent - run:311 > Puzzle 6aa20dc0: FIXED!
+2026-04-27 14:30:42,314 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1792 chars)
+2026-04-27 14:30:42,314 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,314 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 6aa20dc0_1: round 1, 1 tool calls, 0 parse failures, 10 unique errors
+2026-04-27 14:30:42,315 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (2210 chars)
+2026-04-27 14:30:42,315 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:30:42,315 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (2210 chars)
+2026-04-27 14:30:42,316 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:30:42,316 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 3de23699: round 1, 1 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:30:42,316 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 3de23699: no_progress
+2026-04-27 14:30:42,316 [INFO] agent.syntax_repair_agent - run:282 > Puzzle 57aa92db: no_tool_calls (no blocks found)
+2026-04-27 14:30:42,316 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (771 chars)
+2026-04-27 14:30:42,317 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:30:42,317 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (771 chars)
+2026-04-27 14:30:42,318 [DEBUG] utils.clingo - run_clingo:89 > Clingo: 1 answer set(s)
+2026-04-27 14:30:42,319 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 39e1d7f9: round 1, 2 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:30:42,319 [INFO] agent.syntax_repair_agent - run:311 > Puzzle 39e1d7f9: FIXED!
+2026-04-27 14:30:42,319 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1409 chars)
+2026-04-27 14:30:42,319 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (7 messages)
+2026-04-27 14:30:42,319 [INFO] agent.syntax_repair_agent - run:294 > Puzzle bc1d5164: round 1, 1 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:30:42,319 [INFO] agent.syntax_repair_agent - run:316 > Puzzle bc1d5164: no_progress
+2026-04-27 14:30:42,320 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1360 chars)
+2026-04-27 14:30:42,320 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (2 messages)
+2026-04-27 14:30:42,320 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1360 chars)
+2026-04-27 14:30:42,321 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (2 messages)
+2026-04-27 14:30:42,321 [INFO] agent.syntax_repair_agent - run:294 > Puzzle feca6190_2: round 1, 3 tool calls, 0 parse failures, 2 unique errors
+2026-04-27 14:30:42,321 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1569 chars)
+2026-04-27 14:30:42,322 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,322 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1569 chars)
+2026-04-27 14:30:42,322 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:30:42,322 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 137eaa0f: round 1, 2 tool calls, 0 parse failures, 8 unique errors
+2026-04-27 14:30:42,324 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1040 chars)
+2026-04-27 14:30:42,324 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (1 messages)
+2026-04-27 14:30:42,324 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 54d9e175_1: round 1, 1 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:30:42,324 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 54d9e175_1: no_progress
+2026-04-27 14:30:42,324 [INFO] agent.syntax_repair_agent - run:215 > Round 2: 7 active puzzles
+2026-04-27 14:30:42,324 [DEBUG] agent.syntax_repair_agent - run:230 >   Sub-batch 1: 7 prompts
+2026-04-27 14:30:42,326 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:175 > Generating batch of 7 prompts (with token counts, max_tokens=32768)...
+Rendering prompts:   0%|          | 0/7 [00:00<?, ?it/s]Rendering prompts: 100%|██████████| 7/7 [00:00<00:00, 119.99it/s]
+Processed prompts:   0%|          | 0/7 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  14%|█▍        | 1/7 [00:01<00:06,  1.11s/it, est. speed input: 4283.43 toks/s, output: 22.44 toks/s]Processed prompts:  29%|██▊       | 2/7 [00:03<00:08,  1.60s/it, est. speed input: 2970.41 toks/s, output: 121.95 toks/s]Processed prompts:  43%|████▎     | 3/7 [00:03<00:05,  1.29s/it, est. speed input: 3398.84 toks/s, output: 219.55 toks/s]Processed prompts:  57%|█████▋    | 4/7 [00:05<00:04,  1.34s/it, est. speed input: 3491.77 toks/s, output: 308.18 toks/s]Processed prompts:  71%|███████▏  | 5/7 [00:10<00:05,  2.78s/it, est. speed input: 2284.58 toks/s, output: 330.59 toks/s]Processed prompts:  86%|████████▌ | 6/7 [00:22<00:05,  5.81s/it, est. speed input: 1300.70 toks/s, output: 370.73 toks/s]Processed prompts: 100%|██████████| 7/7 [00:31<00:00,  6.74s/it, est. speed input: 1104.28 toks/s, output: 499.74 toks/s]Processed prompts: 100%|██████████| 7/7 [00:31<00:00,  6.74s/it, est. speed input: 1104.28 toks/s, output: 499.74 toks/s]Processed prompts: 100%|██████████| 7/7 [00:31<00:00,  4.44s/it, est. speed input: 1104.28 toks/s, output: 499.74 toks/s]
+2026-04-27 14:31:13,465 [DEBUG] agent.vllm_engine - generate_batch_with_tokens:181 > Generated 15532 tokens in 31.14s (498.79 tok/s)
+2026-04-27 14:31:13,466 [DEBUG] agent.syntax_repair_agent - run:239 >   Sub-batch took 31.1s
+2026-04-27 14:31:13,466 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1105 chars)
+2026-04-27 14:31:13,467 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:31:13,467 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 4522001f_1: round 2, 1 tool calls, 0 parse failures, 10 unique errors
+2026-04-27 14:31:13,467 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 4522001f_1: no_progress
+2026-04-27 14:31:13,467 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1697 chars)
+2026-04-27 14:31:13,470 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:31:13,472 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 88a10436_1: round 2, 1 tool calls, 1 parse failures, 5 unique errors
+2026-04-27 14:31:13,472 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 88a10436_1: no_progress
+2026-04-27 14:31:13,472 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (624 chars)
+2026-04-27 14:31:13,472 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:31:13,473 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 8a004b2b: round 2, 1 tool calls, 0 parse failures, 11 unique errors
+2026-04-27 14:31:13,473 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 8a004b2b: no_progress
+2026-04-27 14:31:13,473 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1857 chars)
+2026-04-27 14:31:13,473 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (6 messages)
+2026-04-27 14:31:13,474 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1857 chars)
+2026-04-27 14:31:13,474 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (6 messages)
+2026-04-27 14:31:13,474 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 54d9e175: round 2, 2 tool calls, 0 parse failures, 1 unique errors
+2026-04-27 14:31:13,474 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 54d9e175: no_progress
+2026-04-27 14:31:13,474 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1792 chars)
+2026-04-27 14:31:13,475 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:31:13,475 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1792 chars)
+2026-04-27 14:31:13,476 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:31:13,476 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 6aa20dc0_1: round 2, 1 tool calls, 0 parse failures, 10 unique errors
+2026-04-27 14:31:13,476 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 6aa20dc0_1: no_progress
+2026-04-27 14:31:13,476 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1360 chars)
+2026-04-27 14:31:13,477 [DEBUG] utils.clingo - run_clingo:48 > Clingo parse error: parsing failed (2 messages)
+2026-04-27 14:31:13,478 [INFO] agent.syntax_repair_agent - run:294 > Puzzle feca6190_2: round 2, 1 tool calls, 0 parse failures, 2 unique errors
+2026-04-27 14:31:13,478 [INFO] agent.syntax_repair_agent - run:316 > Puzzle feca6190_2: no_progress
+2026-04-27 14:31:13,478 [DEBUG] utils.clingo - run_clingo:45 > Adding program to Clingo (1569 chars)
+2026-04-27 14:31:13,479 [DEBUG] utils.clingo - run_clingo:74 > Clingo grounding error: grounding stopped because of errors
+2026-04-27 14:31:13,479 [INFO] agent.syntax_repair_agent - run:294 > Puzzle 137eaa0f: round 2, 1 tool calls, 0 parse failures, 8 unique errors
+2026-04-27 14:31:13,479 [INFO] agent.syntax_repair_agent - run:316 > Puzzle 137eaa0f: no_progress
+(EngineCore pid=1908636) INFO 04-27 14:31:18 [core.py:1210] Shutdown initiated (timeout=0)
+(EngineCore pid=1908636) INFO 04-27 14:31:18 [core.py:1233] Shutdown complete
+  [no_tool_calls] 88a10436 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/88a10436.json
+  [fixed] d5d6de2d -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/d5d6de2d.json
+  [fixed] 5521c0d9 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/5521c0d9.json
+  [no_tool_calls] 4522001f -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/4522001f.json
+  [no_tool_calls] 5521c0d9_1 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/5521c0d9_1.json
+  [no_progress] 4522001f_1 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/4522001f_1.json
+  [no_progress] 88a10436_1 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/88a10436_1.json
+  [no_progress] 8a004b2b -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/8a004b2b.json
+  [no_progress] 54d9e175 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/54d9e175.json
+  [fixed] 6aa20dc0 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/6aa20dc0.json
+  [no_progress] 6aa20dc0_1 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/6aa20dc0_1.json
+  [no_progress] 3de23699 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/3de23699.json
+  [fixed] feca6190 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/feca6190.json
+  [no_tool_calls] 57aa92db -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/57aa92db.json
+  [fixed] 39e1d7f9 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/39e1d7f9.json
+  [no_tool_calls] feca6190_1 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/feca6190_1.json
+  [no_progress] bc1d5164 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/bc1d5164.json
+  [no_progress] feca6190_2 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/feca6190_2.json
+  [no_progress] 137eaa0f -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/137eaa0f.json
+  [no_progress] 54d9e175_1 -> /gpfs/home5/dlindberg/Projects/asp-arc-rewrites/results/syntax_repair_runs/seed47_think/54d9e175_1.json
+
+Summary [seed47_think]: 5/20 fixed
+
+Job complete.
